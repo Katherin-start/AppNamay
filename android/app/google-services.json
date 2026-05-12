@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "611774082174",
+    "project_id": "appnamay-475e0",
+    "storage_bucket": "appnamay-475e0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:611774082174:android:2fa3127232e0de6584bc2f",
+        "android_client_info": {
+          "package_name": "com.example.dental_namay_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1W2mUMgK6_qNDd1WsoxRm0NTAmeaEZ2U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
