@@ -8,11 +8,13 @@ class AuthProvider extends ChangeNotifier {
   String? _errorMessage;
   bool _isLoggedIn = false;
   String? _userEmail;
+  Map<String, dynamic>? _profile;
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isLoggedIn => _isLoggedIn;
   String? get userEmail => _userEmail;
+  Map<String, dynamic>? get profile => _profile;
 
   AuthProvider() {
     _checkAuthStatus();
@@ -30,12 +32,14 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _authService.loginWithEmail(email, password);
-      _isLoggedIn = true;
-      _userEmail = response.user?.email;
+      final success = await _authService.loginWithEmail(email, password);
+      _isLoggedIn = success;
+      if (success) {
+        _userEmail = email;
+      }
       _isLoading = false;
       notifyListeners();
-      return true;
+      return success;
     } catch (e) {
       _errorMessage = e.toString();
       _isLoading = false;
@@ -50,9 +54,12 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _authService.registerWithEmail(email, password);
-      _isLoggedIn = true;
-      _userEmail = response.user?.email;
+      final success = await _authService.registerWithEmail(email, password);
+      if (!success) {
+        throw Exception('No se pudo registrar el usuario.');
+      }
+      _isLoggedIn = false;
+      _userEmail = email;
       _isLoading = false;
       notifyListeners();
       return true;
@@ -109,6 +116,44 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       await _authService.resetPassword(email);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> fetchProfile() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final profileData = await _authService.getProfile();
+      _profile = profileData;
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateProfile(Map<String, dynamic> profileData) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updatedProfile = await _authService.updateProfile(profileData);
+      _profile = updatedProfile;
       _isLoading = false;
       notifyListeners();
       return true;

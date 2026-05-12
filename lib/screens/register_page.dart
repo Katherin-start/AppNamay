@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -27,6 +29,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Container(
@@ -240,11 +243,46 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: _acceptTerms
-                        ? () {
-                            Navigator.pushReplacementNamed(context, '/home');
-                          }
-                        : null,
+                    onPressed: authProvider.isLoading
+                        ? null
+                        : _acceptTerms
+                            ? () async {
+                                if (_emailController.text.isEmpty ||
+                                    _passwordController.text.isEmpty ||
+                                    _confirmPasswordController.text.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Completa todos los campos'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                if (_passwordController.text != _confirmPasswordController.text) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Las contraseñas no coinciden'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                final success = await authProvider.registerWithEmail(
+                                  _emailController.text.trim(),
+                                  _passwordController.text,
+                                );
+                                if (success) {
+                                  Navigator.pushReplacementNamed(context, '/home');
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(authProvider.errorMessage ?? 'Error en el registro'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1E3A8A),
                       disabledBackgroundColor: Colors.grey.shade300,

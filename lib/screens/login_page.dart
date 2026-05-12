@@ -38,6 +38,7 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     if (success && mounted) {
+      await authProvider.fetchProfile();
       Navigator.pushReplacementNamed(context, '/home');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -53,6 +54,7 @@ class _LoginPageState extends State<LoginPage> {
     final success = await authProvider.loginWithGoogle();
 
     if (success && mounted) {
+      await authProvider.fetchProfile();
       Navigator.pushReplacementNamed(context, '/home');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

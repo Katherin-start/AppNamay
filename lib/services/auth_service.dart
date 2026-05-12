@@ -1,5 +1,9 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../config/backend_config.dart';
 import '../config/supabase_config.dart';
 
 class AuthService {
@@ -15,25 +19,93 @@ class AuthService {
     clientId: '576083952932-456v5ddm4j5mq19ibl13fd99junour1i.apps.googleusercontent.com',
   );
 
-  Future<AuthResponse> loginWithEmail(String email, String password) async {
+  Future<bool> loginWithEmail(String email, String password) async {
     try {
-      final response = await SupabaseConfig.auth.signInWithPassword(
-        email: email,
-        password: password,
+      final response = await http.post(
+        Uri.parse(BackendConfig.loginUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+        }),
       );
-      return response;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      }
+
+      throw Exception('Error al iniciar sesión: ${response.statusCode} ${response.body}');
     } catch (e) {
       rethrow;
     }
   }
 
-  Future<AuthResponse> registerWithEmail(String email, String password) async {
+  Future<bool> registerWithEmail(String email, String password) async {
     try {
-      final response = await SupabaseConfig.auth.signUp(
-        email: email,
-        password: password,
+      final response = await http.post(
+        Uri.parse(BackendConfig.registerUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+        }),
       );
-      return response;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      }
+
+      throw Exception('Error al registrar: ${response.statusCode} ${response.body}');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getProfile() async {
+    try {
+      final response = await http.get(
+        Uri.parse(BackendConfig.profileUrl),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          return data;
+        }
+        throw Exception('Respuesta de perfil inválida');
+      }
+      throw Exception('Error al obtener perfil: ${response.statusCode} ${response.body}');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> profileData) async {
+    try {
+      final response = await http.put(
+        Uri.parse(BackendConfig.profileUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(profileData),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.body.isEmpty) {
+          return profileData;
+        }
+
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          return data;
+        }
+        throw Exception('Respuesta de actualización de perfil inválida');
+      }
+
+      if (response.statusCode == 204) {
+        return profileData;
+      }
+
+      throw Exception('Error al actualizar perfil: ${response.statusCode} ${response.body}');
     } catch (e) {
       rethrow;
     }
