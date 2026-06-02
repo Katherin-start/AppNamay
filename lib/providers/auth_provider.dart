@@ -9,20 +9,32 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoggedIn = false;
   String? _userEmail;
   Map<String, dynamic>? _profile;
+  bool _initialized = false;
+  bool _isNewUser = false;
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isLoggedIn => _isLoggedIn;
   String? get userEmail => _userEmail;
   Map<String, dynamic>? get profile => _profile;
+  bool get initialized => _initialized;
+  bool get isNewUser => _isNewUser;
+  
+  /// Obtener el token de autenticación actual
+  String? getAuthToken() => _authService.getAuthToken();
 
   AuthProvider() {
     _checkAuthStatus();
   }
 
   Future<void> _checkAuthStatus() async {
+    await _authService.init();
     _isLoggedIn = _authService.isLoggedIn();
     _userEmail = _authService.getCurrentUserEmail();
+    if (_isLoggedIn) {
+      await fetchProfile();
+    }
+    _initialized = true;
     notifyListeners();
   }
 
@@ -34,8 +46,10 @@ class AuthProvider extends ChangeNotifier {
     try {
       final success = await _authService.loginWithEmail(email, password);
       _isLoggedIn = success;
+      _isNewUser = false;
       if (success) {
         _userEmail = email;
+        await fetchProfile();
       }
       _isLoading = false;
       notifyListeners();
@@ -48,38 +62,34 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> registerWithEmail(String email, String password) async {
+  Future<bool> registerWithEmail(
+    String nombre,
+    String apellido,
+    String email,
+    String password,
+    String fotoPerfil,
+    {String rol = 'Paciente'} // Rol por defecto: Paciente
+  ) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final success = await _authService.registerWithEmail(email, password);
+      final success = await _authService.registerWithEmail(
+        nombre,
+        apellido,
+        email,
+        password,
+        fotoPerfil,
+        rol: rol,
+      );
       if (!success) {
         throw Exception('No se pudo registrar el usuario.');
       }
-      _isLoggedIn = false;
+      _isLoggedIn = success;
+      _isNewUser = true;
       _userEmail = email;
-      _isLoading = false;
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _errorMessage = e.toString();
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  Future<bool> loginWithGoogle() async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final response = await _authService.loginWithGoogle();
-      _isLoggedIn = true;
-      _userEmail = response.user?.email;
+      await fetchProfile();
       _isLoading = false;
       notifyListeners();
       return true;
@@ -146,6 +156,14 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchOdontologos() async {
+    return await _authService.fetchOdontologos();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchDiscounts() async {
+    return await _authService.fetchDiscounts();
+  }
+
   Future<bool> updateProfile(Map<String, dynamic> profileData) async {
     _isLoading = true;
     _errorMessage = null;
@@ -154,6 +172,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       final updatedProfile = await _authService.updateProfile(profileData);
       _profile = updatedProfile;
+      // ignore: avoid_print
+      print('AuthProvider: profile updated => $_profile');
       _isLoading = false;
       notifyListeners();
       return true;

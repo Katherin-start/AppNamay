@@ -38,28 +38,11 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     if (success && mounted) {
-      await authProvider.fetchProfile();
       Navigator.pushReplacementNamed(context, '/home');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(authProvider.errorMessage ?? 'Error en el inicio de sesión'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _handleGoogleLogin(BuildContext context, AuthProvider authProvider) async {
-    final success = await authProvider.loginWithGoogle();
-
-    if (success && mounted) {
-      await authProvider.fetchProfile();
-      Navigator.pushReplacementNamed(context, '/home');
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Error en el inicio de sesión con Google'),
           backgroundColor: Colors.red,
         ),
       );
@@ -74,13 +57,21 @@ class _LoginPageState extends State<LoginPage> {
         constraints: const BoxConstraints.expand(),
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/fondo.png'),
+            image: ResizeImage(
+              AssetImage('assets/fondo.png'),
+              width: 900,
+            ),
             fit: BoxFit.cover,
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 16,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            ),
             child: Consumer<AuthProvider>(
               builder: (context, authProvider, _) {
                 return Column(
@@ -221,58 +212,6 @@ class _LoginPageState extends State<LoginPage> {
                                   color: Colors.white,
                                 ),
                               ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(child: Container(height: 1, color: Colors.grey.shade300)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'o continúa con',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ),
-                          Expanded(child: Container(height: 1, color: Colors.grey.shade300)),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      OutlinedButton(
-                        onPressed: authProvider.isLoading
-                            ? null
-                            : () => _handleGoogleLogin(context, authProvider),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 9),
-                          side: const BorderSide(color: Colors.grey),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Image.asset(
-                              'assets/google_icon.png',
-                              height: 18,
-                              width: 18,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(Icons.account_circle, color: Color(0xFF1e3a8a), size: 18);
-                              },
-                            ),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'Continuar con Google',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                       const SizedBox(height: 24),
                       Center(
