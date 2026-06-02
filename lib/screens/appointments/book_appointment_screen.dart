@@ -19,8 +19,12 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   Future<List<Map<String, dynamic>>>? _odontologosFuture;
   Future<List<Map<String, dynamic>>>? _discountsFuture;
   bool _odontologosFutureInitialized = false;
+  int _activeStep = 0;
 
   final List<String> _times = [
+    '04:00 PM',
+    '04:30 PM',
+    '05:00 PM',
     '05:30 PM',
     '06:00 PM',
     '06:30 PM',
@@ -28,9 +32,29 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     '07:30 PM',
     '08:00 PM',
     '08:30 PM',
+    '09:00 PM',
   ];
 
+  final List<String> _reasons = [
+    'Control de rutina',
+    'Consulta por molestias visuales',
+    'Lentes / Graduación',
+    'Cirugía refractiva',
+    'Otro',
+  ];
+  int _selectedReasonIndex = 0;
+
   void _onConfirm() {
+    if (_selectedDentist == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona un especialista antes de confirmar.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_selectedTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -48,6 +72,31 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       ),
     );
     Navigator.pop(context);
+  }
+
+  void _showStepError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red.shade700,
+      ),
+    );
+  }
+
+  void _onNextStep() {
+    if (_activeStep == 0 && _selectedDentist == null) {
+      _showStepError('Selecciona un especialista antes de continuar.');
+      return;
+    }
+    if (_activeStep == 2 && _selectedTime == null) {
+      _showStepError('Selecciona un horario antes de continuar.');
+      return;
+    }
+    if (_activeStep == 3 && _reasons[_selectedReasonIndex] == 'Otro' && _consultationReason.trim().isEmpty) {
+      _showStepError('Escribe el motivo de tu consulta.');
+      return;
+    }
+    setState(() => _activeStep = math.min(4, _activeStep + 1));
   }
 
   @override
@@ -69,42 +118,161 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       onTap: () => setState(() => _selectedDentist = dentist),
       child: Container(
         decoration: BoxDecoration(
-          color: selected ? Colors.blue.shade50 : Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? Colors.blue.shade50 : Colors.white,
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+            color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade200,
             width: selected ? 2 : 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Row(
           children: [
             CircleAvatar(
-              radius: 26,
-              backgroundColor: Colors.grey.shade200,
+              radius: 30,
+              backgroundColor: Colors.grey.shade100,
               foregroundImage: foto != null && foto.isNotEmpty ? NetworkImage(foto) : null,
               child: foto == null || foto.isEmpty
-                ? const Icon(Icons.person, color: Color(0xFF4F46E5))
-                : null,
+                  ? const Icon(Icons.person, color: Color(0xFF4F46E5), size: 30)
+                  : null,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   if (especialidad.isNotEmpty) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(especialidad, style: TextStyle(color: Colors.grey.shade600)),
                   ],
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Disponible hoy',
+                      style: TextStyle(color: Colors.green.shade700, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 ],
               ),
             ),
-            if (selected) Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
+            if (selected)
+              Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary, size: 26),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildStepIndicator() {
+    final steps = ['Especialista', 'Fecha', 'Horario', 'Motivo', 'Confirmar'];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: List.generate(steps.length * 2 - 1, (index) {
+          if (index.isOdd) {
+            final connectorIndex = index ~/ 2;
+            final isCompleted = connectorIndex < _activeStep;
+            return Container(
+              width: 32,
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: isCompleted ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            );
+          }
+
+          final stepIndex = index ~/ 2;
+          final isActive = stepIndex == _activeStep;
+          final isCompleted = stepIndex < _activeStep;
+          return GestureDetector(
+            onTap: () {
+              if (stepIndex > 0 && _selectedDentist == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Selecciona un especialista antes de avanzar.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+              setState(() => _activeStep = stepIndex);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: isActive || isCompleted ? Theme.of(context).colorScheme.primary : Colors.grey.shade200,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: isCompleted
+                          ? const Icon(Icons.check, size: 18, color: Colors.white)
+                          : Text(
+                              '${stepIndex + 1}',
+                              style: TextStyle(
+                                color: isActive ? Colors.white : Colors.grey.shade700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 78,
+                    child: Text(
+                      steps[stepIndex],
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                        color: isActive ? Theme.of(context).colorScheme.primary : Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  bool _dentistIsAvailable(Map<String, dynamic> dentist) {
+    final possibleKeys = ['disponible', 'activo', 'status', 'estado', 'available', 'is_available', 'isActive'];
+    for (final key in possibleKeys) {
+      if (!dentist.containsKey(key)) continue;
+      final value = dentist[key];
+      if (value is bool) return value;
+      if (value is num) return value != 0;
+      final lower = value.toString().toLowerCase();
+      if (['true', '1', 'activo', 'disponible', 'available', 'sí', 'si', 'yes', 'on'].contains(lower)) {
+        return true;
+      }
+      if (['false', '0', 'inactivo', 'no', 'unavailable', 'off', 'deshabilitado'].contains(lower)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   String _formatDiscountValue(Map<String, dynamic> discount) {
@@ -231,312 +399,419 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                 'Reserva tu cita',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 12),
-
-              // Calendario simple
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.chevron_left),
-                                onPressed: () => _changeMonth(-1),
-                              ),
-                              Text(
-                                '${_monthName(_selectedDate.month)} ${_selectedDate.year}',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.chevron_right),
-                                onPressed: () => _changeMonth(1),
-                              ),
-                            ],
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.calendar_today_outlined),
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: context,
-                                initialDate: _selectedDate,
-                                firstDate: DateTime.now().subtract(const Duration(days: 0)),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
-                              );
-                              if (d != null) setState(() => _selectedDate = d);
-                            },
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      CalendarDatePicker(
-                        initialDate: _selectedDate,
-                        firstDate: DateTime.now().subtract(const Duration(days: 0)),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                        onDateChanged: (d) => setState(() => _selectedDate = d),
+              const SizedBox(height: 14),
+              _buildStepIndicator(),
+              const SizedBox(height: 18),
+              if (_activeStep == 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.grey.shade200),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
                       ),
                     ],
                   ),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.search, color: Colors.grey),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Buscar especialista o área',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                      Icon(Icons.filter_list, color: Colors.grey),
+                    ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 18),
+                const Text('Odontólogos disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _odontologosFuture ??= Provider.of<AuthProvider>(context, listen: false).fetchOdontologos(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-              const SizedBox(height: 12),
-
-              const Text('Odontólogos disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              FutureBuilder<List<Map<String, dynamic>>>(
-                future: _odontologosFuture ??= Provider.of<AuthProvider>(context, listen: false).fetchOdontologos(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.errorContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'Error al cargar odontólogos: ${snapshot.error}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.onErrorContainer,
-                            ),
-                      ),
-                    );
-                  }
-
-                  final odontologos = snapshot.data ?? [];
-                  if (odontologos.isEmpty) {
-                    return Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
+                    if (snapshot.hasError) {
+                      return Container(
                         padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'No hay odontólogos disponibles por ahora.',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: odontologos.map((doc) {
-                      final selected = _selectedDentist != null && _selectedDentist!['email'] == doc['email'];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _buildDentistCard(doc, selected),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 16),
-              const Text('Descuentos disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              FutureBuilder<List<Map<String, dynamic>>>(
-                future: _discountsFuture ??= Provider.of<AuthProvider>(context, listen: false).fetchDiscounts(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.errorContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'Error al cargar descuentos: ${snapshot.error}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.onErrorContainer,
-                            ),
-                      ),
-                    );
-                  }
-
-                  final discounts = snapshot.data ?? [];
-                  if (discounts.isEmpty) {
-                    return Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'No hay descuentos disponibles por ahora.',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: discounts.map((discount) {
-                      final selected = _selectedDiscount != null && _selectedDiscount!['id'] == discount['id'];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _buildDiscountCard(discount, selected),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 12),
-
-              // Horarios disponibles
-              const Text('Horarios disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _times.map((t) {
-                  final selected = t == _selectedTime;
-                  return GestureDetector(
-                    onTap: () => setState(() => _selectedTime = t),
-                    child: SizedBox(
-                      width: 128,
-                      height: 44,
-                      child: Container(
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          color: selected ? Colors.white : Theme.of(context).cardColor,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-                            width: selected ? 2 : 1,
-                          ),
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          t,
-                          style: TextStyle(
-                            color: selected ? Theme.of(context).colorScheme.primary : null,
-                            fontWeight: FontWeight.w700,
+                          'Error al cargar odontólogos: ${snapshot.error}',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onErrorContainer,
+                              ),
+                        ),
+                      );
+                    }
+
+                    final odontologos = snapshot.data ?? [];
+                    final disponibles = odontologos.where(_dentistIsAvailable).toList();
+                    if (disponibles.isEmpty) {
+                      return Card(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'No hay especialistas disponibles cargados por ahora.',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
                           ),
                         ),
+                      );
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: disponibles.map((doc) {
+                        final selected = _selectedDentist != null && _selectedDentist!['email'] == doc['email'];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildDentistCard(doc, selected),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+                  if (_activeStep != 0) ...[
+                const SizedBox(height: 18),
+                const Text('Especialista seleccionado', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                if (_selectedDentist != null)
+                  _buildDentistCard(_selectedDentist!, true)
+                else
+                  Card(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Selecciona un especialista en el paso anterior para continuar.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
-
-              const SizedBox(height: 16),
-              const Text('Motivo de la consulta', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              TextField(
-                maxLines: 3,
-                onChanged: (value) => setState(() => _consultationReason = value),
-                decoration: InputDecoration(
-                  hintText: 'Describe brevemente el motivo de tu consulta',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: Theme.of(context).cardColor,
+                  ),
+              ],
+              if (_activeStep == 1) ...[
+                const SizedBox(height: 18),
+                const Text('Selecciona fecha', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.chevron_left),
+                                  onPressed: () => _changeMonth(-1),
+                                ),
+                                Text(
+                                  '${_monthName(_selectedDate.month)} ${_selectedDate.year}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.chevron_right),
+                                  onPressed: () => _changeMonth(1),
+                                ),
+                              ],
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.calendar_today_outlined),
+                              onPressed: () async {
+                                final d = await showDatePicker(
+                                  context: context,
+                                  initialDate: _selectedDate,
+                                  firstDate: DateTime.now().subtract(const Duration(days: 0)),
+                                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                                );
+                                if (d != null) setState(() => _selectedDate = d);
+                              },
+                            )
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        CalendarDatePicker(
+                          initialDate: _selectedDate,
+                          firstDate: DateTime.now().subtract(const Duration(days: 0)),
+                          lastDate: DateTime.now().add(const Duration(days: 365)),
+                          onDateChanged: (d) => setState(() => _selectedDate = d),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              // Resumen
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Resumen de la cita', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Procedimiento'),
-                          Text('Consulta General'),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Fecha'),
-                          Text('${_selectedDate.day} ${_monthName(_selectedDate.month)}'),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Expanded(child: Text('Motivo')),
-                          Expanded(
-                            flex: 2,
-                            child: Text(
-                              _consultationReason.isEmpty ? 'No definido' : _consultationReason,
-                              textAlign: TextAlign.right,
+              ],
+              if (_activeStep == 2) ...[
+                const SizedBox(height: 18),
+                const Text('Horarios disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _times.map((t) {
+                    final selected = t == _selectedTime;
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedTime = t),
+                      child: SizedBox(
+                        width: 128,
+                        height: 44,
+                        child: Container(
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: selected ? Colors.white : Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                              width: selected ? 2 : 1,
                             ),
                           ),
-                        ],
+                          child: Text(
+                            t,
+                            style: TextStyle(
+                              color: selected ? Theme.of(context).colorScheme.primary : null,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 6),
-                      if (selectedDiscount != null) ...[
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'La consulta dura aproximadamente 30 a 40 minutos.',
+                    style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13),
+                  ),
+                ),
+              ],
+              if (_activeStep == 3) ...[
+                const SizedBox(height: 18),
+                const Text('Motivo de la consulta', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List.generate(_reasons.length, (index) {
+                    final selected = index == _selectedReasonIndex;
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedReasonIndex = index),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Text(
+                          _reasons[index],
+                          style: TextStyle(
+                            color: selected ? Colors.white : Colors.grey.shade800,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  maxLines: 3,
+                  onChanged: (value) => setState(() => _consultationReason = value),
+                  decoration: InputDecoration(
+                    hintText: _reasons[_selectedReasonIndex] == 'Otro'
+                        ? 'Escribe el motivo de la consulta'
+                        : 'Opcional: agrega detalles adicionales',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    filled: true,
+                    fillColor: Theme.of(context).cardColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('Descuentos disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _discountsFuture ??= Provider.of<AuthProvider>(context, listen: false).fetchDiscounts(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (snapshot.hasError) {
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Error al cargar descuentos: ${snapshot.error}',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onErrorContainer,
+                              ),
+                        ),
+                      );
+                    }
+
+                    final discounts = snapshot.data ?? [];
+                    if (discounts.isEmpty) {
+                      return Card(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'No hay descuentos disponibles por ahora.',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+                          ),
+                        ),
+                      );
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: discounts.map((discount) {
+                        final selected = _selectedDiscount != null && _selectedDiscount!['id'] == discount['id'];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildDiscountCard(discount, selected),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+              ],
+              if (_activeStep == 4) ...[
+                const SizedBox(height: 18),
+                const Text('Resumen de la cita', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 12),
+                Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _selectedDentist?['nombre']?.toString() ?? 'Especialista',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _selectedDentist?['especialidad']?.toString() ?? _selectedDentist?['rol']?.toString() ?? '',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                        const Divider(height: 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Descuento'),
-                            Text(
-                              '-$discountLabel',
-                              style: const TextStyle(color: Colors.green),
+                            const Text('Fecha'),
+                            Text('${_selectedDate.day} ${_monthName(_selectedDate.month)}'),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Horario'),
+                            Text(_selectedTime ?? 'No seleccionado'),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Motivo'),
+                            Expanded(
+                              child: Text(
+                                _reasons[_selectedReasonIndex] == 'Otro'
+                                    ? (_consultationReason.isEmpty ? 'Otro' : _consultationReason)
+                                    : _reasons[_selectedReasonIndex],
+                                textAlign: TextAlign.right,
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 12),
+                        if (selectedDiscount != null) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Descuento'),
+                              Text('-$discountLabel', style: const TextStyle(color: Colors.green)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Total'),
-                            Text(
-                              '\$${totalPrice.toStringAsFixed(2)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ] else ...[
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Inversión'),
-                            const Text('\$45.00'),
+                            const Text('Total a pagar', style: TextStyle(fontWeight: FontWeight.bold)),
+                            Text('\$${totalPrice.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _onConfirm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(56),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ],
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  if (_activeStep > 0)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => setState(() => _activeStep = _activeStep - 1),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.primary,
+                          side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text('Atrás'),
+                      ),
+                    ),
+                  if (_activeStep > 0) const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _activeStep == 4 ? _onConfirm : _onNextStep,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: Text(_activeStep == 4 ? 'Confirmar cita' : 'Siguiente'),
+                    ),
                   ),
-                  child: const Text('Confirmar Cita', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ),
+                ],
               ),
               const SizedBox(height: 24),
             ],
