@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import 'doctor_detail_screen.dart';
 
 class DoctorsScreen extends StatelessWidget {
   const DoctorsScreen({Key? key}) : super(key: key);
@@ -95,7 +96,11 @@ class DoctorsScreen extends StatelessWidget {
                           ],
                         ),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () {},
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => DoctorDetailScreen(doctor: doc)),
+                          );
+                        },
                       );
                     },
                   );

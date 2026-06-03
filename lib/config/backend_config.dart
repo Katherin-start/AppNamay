@@ -15,5 +15,8 @@ class BackendConfig {
   static const String registerUrl = mobileRegisterUrl;
   static const String profileUrl = '$apiBaseUrl/mobile/profile';
   static const String odontologosUrl = '$apiBaseUrl/mobile/odontologos';
+  static String doctorDetailUrl(String doctorId) => '$apiBaseUrl/mobile/odontologos/$doctorId';
   static const String mobileDiscountsUrl = '$apiBaseUrl/mobile/discounts';
+
+  static String doctorReviewUrl(String doctorId) => '$apiBaseUrl/mobile/odontologos/$doctorId/reviews';
 }

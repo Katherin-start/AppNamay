@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../appointments/appointments_screen.dart';
+import '../doctors/doctor_detail_screen.dart';
 import '../doctors/doctors_screen.dart';
 import '../chat/chat_list_screen.dart';
 import '../profile/profile_screen.dart';
@@ -616,7 +617,7 @@ class _HomeTab extends StatelessWidget {
                                           ElevatedButton(
                                             onPressed: () {
                                               Navigator.of(context).push(
-                                                MaterialPageRoute(builder: (_) => const DoctorsScreen()),
+                                                MaterialPageRoute(builder: (_) => DoctorDetailScreen(doctor: doc)),
                                               );
                                             },
                                             style: ElevatedButton.styleFrom(

@@ -160,6 +160,18 @@ class AuthProvider extends ChangeNotifier {
     return await _authService.fetchOdontologos();
   }
 
+  Future<Map<String, dynamic>> fetchDoctorDetail(String doctorId) async {
+    return await _authService.fetchDoctorDetail(doctorId);
+  }
+
+  Future<Map<String, dynamic>> submitDoctorReview(
+    String doctorId,
+    int rating,
+    String comentario,
+  ) async {
+    return await _authService.createDoctorReview(doctorId, rating, comentario);
+  }
+
   Future<List<Map<String, dynamic>>> fetchDiscounts() async {
     return await _authService.fetchDiscounts();
   }

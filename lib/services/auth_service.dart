@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/backend_config.dart';
 import '../config/supabase_config.dart';
@@ -458,6 +457,87 @@ class AuthService {
     }
   }
 
+  Future<Map<String, dynamic>> fetchDoctorDetail(String doctorId) async {
+    try {
+      final uri = Uri.parse(BackendConfig.doctorDetailUrl(doctorId));
+      final headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+      };
+
+      final response = await http.get(uri, headers: headers);
+      // ignore: avoid_print
+      print('fetchDoctorDetail: ${uri.toString()} status=${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          if (data['doctor'] is Map<String, dynamic>) {
+            return Map<String, dynamic>.from(data['doctor'] as Map<String, dynamic>);
+          }
+          if (data['data'] is Map<String, dynamic>) {
+            return Map<String, dynamic>.from(data['data'] as Map<String, dynamic>);
+          }
+          return Map<String, dynamic>.from(data);
+        }
+        throw Exception('Respuesta de detalle de doctor inválida');
+      }
+
+      throw Exception(_parseBackendError(response.body, response.statusCode));
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createDoctorReview(
+    String doctorId,
+    int rating,
+    String comentario,
+  ) async {
+    try {
+      if (_authToken == null) {
+        throw Exception('No hay token de autenticación disponible');
+      }
+
+      final response = await http.post(
+        Uri.parse(BackendConfig.doctorReviewUrl(doctorId)),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $_authToken',
+        },
+        body: jsonEncode({
+          'rating': rating,
+          'comentario': comentario,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.body.isEmpty) {
+          return {'rating': rating, 'comentario': comentario};
+        }
+
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          if (data.containsKey('review') && data['review'] is Map<String, dynamic>) {
+            return data['review'] as Map<String, dynamic>;
+          }
+          if (data.containsKey('data') && data['data'] is Map<String, dynamic>) {
+            return data['data'] as Map<String, dynamic>;
+          }
+          return data;
+        }
+
+        throw Exception('Respuesta de reseña inválida');
+      }
+
+      throw Exception('Error al enviar reseña: ${response.statusCode} ${response.body}');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   String _stripHtml(String html) {
     try {
       final reg = RegExp(r'<[^>]*>', multiLine: true, caseSensitive: false);
@@ -506,7 +586,7 @@ class AuthService {
         // Intentar obtener nombre desde metadata si existe
         String? nombre;
         try {
-          final meta = (supabaseUser.userMetadata ?? {}) as Map<String, dynamic>;
+          final meta = supabaseUser.userMetadata ?? {};
           nombre = (meta['nombre'] ?? meta['name'] ?? meta['full_name'])
               ?.toString();
         } catch (_) {}
