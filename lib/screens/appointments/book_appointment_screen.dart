@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/appointment_provider.dart';
 
 class BookAppointmentScreen extends StatefulWidget {
   const BookAppointmentScreen({Key? key}) : super(key: key);
@@ -20,6 +23,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   Future<List<Map<String, dynamic>>>? _discountsFuture;
   bool _odontologosFutureInitialized = false;
   int _activeStep = 0;
+  String _selectedPaymentMethod = 'Yape';
+  File? _paymentScreenshot;
+  bool _isPickingScreenshot = false;
 
   final List<String> _times = [
     '04:00 PM',
@@ -37,14 +43,48 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
 
   final List<String> _reasons = [
     'Control de rutina',
-    'Consulta por molestias visuales',
-    'Lentes / Graduación',
-    'Cirugía refractiva',
+    'Consulta por dolor dental',
+    'Revisión preventiva',
+    'Tratamiento de caries',
     'Otro',
   ];
   int _selectedReasonIndex = 0;
 
-  void _onConfirm() {
+  bool _isSelectedDateToday() {
+    final now = DateTime.now();
+    return _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
+  }
+
+  bool _isTimeBeforeNow(String time12h) {
+    if (!_isSelectedDateToday()) return false;
+
+    final parts = time12h.split(' ');
+    final hourMinute = parts[0].split(':');
+    int hour = int.parse(hourMinute[0]);
+    final minute = int.parse(hourMinute[1]);
+    final amPm = parts[1];
+
+    if (amPm == 'PM' && hour != 12) {
+      hour += 12;
+    } else if (amPm == 'AM' && hour == 12) {
+      hour = 0;
+    }
+
+    final now = DateTime.now();
+    final selectedDateTime = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      hour,
+      minute,
+    );
+
+    return selectedDateTime.isBefore(now);
+  }
+
+  void _onConfirm() async {
     if (_selectedDentist == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -65,13 +105,95 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       return;
     }
 
-    // Aquí podrías enviar la petición al backend para crear la cita
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Cita confirmada: ${_selectedDate.toLocal()} ${_selectedTime!}'),
+    // Usar AppointmentProvider para crear cita
+    if (!mounted) return;
+    
+    final appointmentProvider = Provider.of<AppointmentProvider>(
+      context,
+      listen: false,
+    );
+
+    final fecha = '${_selectedDate.year.toString().padLeft(4, '0')}'
+        '-${_selectedDate.month.toString().padLeft(2, '0')}'
+        '-${_selectedDate.day.toString().padLeft(2, '0')}';
+
+    // Extraer hora en formato 24h (ej: "16:00")
+    final timeList = _selectedTime!.split(':');
+    int hour = int.parse(timeList[0]);
+    final minute = timeList[1].split(' ')[0];
+    
+    // Si es PM, sumar 12 (excepto si es 12:00 PM)
+    if (_selectedTime!.contains('PM') && hour != 12) {
+      hour += 12;
+    } else if (_selectedTime!.contains('AM') && hour == 12) {
+      hour = 0;
+    }
+    
+    final formattedHour = hour.toString().padLeft(2, '0');
+    final hora = '$formattedHour:$minute';
+
+    // Mostrar loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
       ),
     );
-    Navigator.pop(context);
+
+    try {
+      final success = await appointmentProvider.createAppointment(
+        fecha: fecha,
+        hora: hora,
+        idOdontologo: _selectedDentist!['id'] ?? '',
+        nombreOdontologo: _selectedDentist!['nombre'] ?? 'Odontólogo',
+        monto: 100.0,
+        metodoPago: _selectedPaymentMethod,
+        servicio: _selectedDiscount != null
+            ? _selectedDiscount!['nombre']?.toString() ?? 'Cita'
+            : 'Cita',
+        descripcion: _consultationReason.isNotEmpty ? _consultationReason : null,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Cerrar loading
+
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Cita confirmada: $fecha $hora ✅',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+          Navigator.of(context).pop(); // Volver a pantalla anterior
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Cita guardada localmente. Se sincronizará cuando haya conexión. ⚠️',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          Navigator.of(context).pop();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Cerrar loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   void _showStepError(String message) {
@@ -92,11 +214,45 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       _showStepError('Selecciona un horario antes de continuar.');
       return;
     }
+    if (_activeStep == 2 && _selectedTime != null && _isTimeBeforeNow(_selectedTime!)) {
+      _showStepError('Selecciona un horario válido que no haya pasado.');
+      return;
+    }
     if (_activeStep == 3 && _reasons[_selectedReasonIndex] == 'Otro' && _consultationReason.trim().isEmpty) {
       _showStepError('Escribe el motivo de tu consulta.');
       return;
     }
-    setState(() => _activeStep = math.min(4, _activeStep + 1));
+    if (_activeStep == 4 && _selectedPaymentMethod == 'Yape' && _paymentScreenshot == null) {
+      _showStepError('Selecciona la captura de pantalla del pago para continuar.');
+      return;
+    }
+    setState(() => _activeStep = math.min(5, _activeStep + 1));
+  }
+
+  Future<void> _pickPaymentScreenshot() async {
+    if (_isPickingScreenshot) return;
+    setState(() => _isPickingScreenshot = true);
+    try {
+      final picker = ImagePicker();
+      final XFile? pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+      if (pickedFile != null) {
+        setState(() => _paymentScreenshot = File(pickedFile.path));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al seleccionar captura: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPickingScreenshot = false);
+    }
   }
 
   @override
@@ -177,7 +333,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   }
 
   Widget _buildStepIndicator() {
-    final steps = ['Especialista', 'Fecha', 'Horario', 'Motivo', 'Confirmar'];
+    final steps = ['Especialista', 'Fecha', 'Horario', 'Motivo', 'Pago', 'Confirmar'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -475,7 +631,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: disponibles.map((doc) {
-                        final selected = _selectedDentist != null && _selectedDentist!['email'] == doc['email'];
+                        final selected = _selectedDentist != null &&
+                            _selectedDentist!['id'] != null &&
+                            doc['id'] != null &&
+                            _selectedDentist!['id'] == doc['id'];
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: _buildDentistCard(doc, selected),
@@ -543,7 +702,14 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                                   firstDate: DateTime.now().subtract(const Duration(days: 0)),
                                   lastDate: DateTime.now().add(const Duration(days: 365)),
                                 );
-                                if (d != null) setState(() => _selectedDate = d);
+                                if (d != null) {
+                                  setState(() {
+                                    _selectedDate = d;
+                                    if (_selectedTime != null && _isTimeBeforeNow(_selectedTime!)) {
+                                      _selectedTime = null;
+                                    }
+                                  });
+                                }
                               },
                             )
                           ],
@@ -569,8 +735,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                   runSpacing: 8,
                   children: _times.map((t) {
                     final selected = t == _selectedTime;
+                    final disabled = _isTimeBeforeNow(t);
                     return GestureDetector(
-                      onTap: () => setState(() => _selectedTime = t),
+                      onTap: disabled ? null : () => setState(() => _selectedTime = t),
                       child: SizedBox(
                         width: 128,
                         height: 44,
@@ -578,17 +745,29 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                           alignment: Alignment.center,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           decoration: BoxDecoration(
-                            color: selected ? Colors.white : Theme.of(context).cardColor,
+                            color: selected
+                                ? Colors.white
+                                : disabled
+                                    ? Colors.grey.shade200
+                                    : Theme.of(context).cardColor,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                              color: selected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : disabled
+                                      ? Colors.grey.shade300
+                                      : Colors.grey.shade300,
                               width: selected ? 2 : 1,
                             ),
                           ),
                           child: Text(
                             t,
                             style: TextStyle(
-                              color: selected ? Theme.of(context).colorScheme.primary : null,
+                              color: selected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : disabled
+                                      ? Colors.grey.shade500
+                                      : null,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -710,6 +889,139 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
               ],
               if (_activeStep == 4) ...[
                 const SizedBox(height: 18),
+                const Text('Método de pago', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedPaymentMethod = 'Yape'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: _selectedPaymentMethod == 'Yape' ? Theme.of(context).colorScheme.primary : Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _selectedPaymentMethod == 'Yape' ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(Icons.qr_code, color: _selectedPaymentMethod == 'Yape' ? Colors.white : Colors.grey.shade700, size: 28),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Yape QR',
+                                style: TextStyle(
+                                  color: _selectedPaymentMethod == 'Yape' ? Colors.white : Colors.grey.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedPaymentMethod = 'Efectivo'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: _selectedPaymentMethod == 'Efectivo' ? Theme.of(context).colorScheme.primary : Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _selectedPaymentMethod == 'Efectivo' ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(Icons.attach_money, color: _selectedPaymentMethod == 'Efectivo' ? Colors.white : Colors.grey.shade700, size: 28),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Efectivo',
+                                style: TextStyle(
+                                  color: _selectedPaymentMethod == 'Efectivo' ? Colors.white : Colors.grey.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_selectedPaymentMethod == 'Yape') ...[
+                  const SizedBox(height: 18),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Escanea el QR con la app de Yape y luego sube la captura de pantalla de tu pago.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade800),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        Image.asset('assets/qryape.png', height: 220, fit: BoxFit.contain),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _isPickingScreenshot ? null : _pickPaymentScreenshot,
+                          icon: const Icon(Icons.photo_library),
+                          label: Text(_paymentScreenshot == null ? 'Seleccionar captura de pago' : 'Cambiar captura de pago'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                        if (_paymentScreenshot != null) ...[
+                          const SizedBox(height: 14),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              _paymentScreenshot!,
+                              width: double.infinity,
+                              height: 160,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Vista previa de la captura de pantalla seleccionada.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 18),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      'Seleccionaste pago en efectivo. Lleva el monto exacto al consultorio el día de tu cita.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.green.shade800),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ],
+              if (_activeStep == 5) ...[
+                const SizedBox(height: 18),
                 const Text('Resumen de la cita', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 12),
                 Card(
@@ -759,6 +1071,27 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Método de pago'),
+                            Text(_selectedPaymentMethod == 'Yape' ? 'Yape QR' : 'Efectivo'),
+                          ],
+                        ),
+                        if (_selectedPaymentMethod == 'Yape') ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            _paymentScreenshot == null
+                                ? 'Falta la captura de pago.'
+                                : 'Captura cargada.',
+                            style: TextStyle(
+                              color: _paymentScreenshot == null ? Colors.red.shade700 : Colors.green.shade700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         const SizedBox(height: 12),
                         if (selectedDiscount != null) ...[
                           Row(
@@ -801,14 +1134,14 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                   if (_activeStep > 0) const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _activeStep == 4 ? _onConfirm : _onNextStep,
+                      onPressed: _activeStep == 5 ? _onConfirm : _onNextStep,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      child: Text(_activeStep == 4 ? 'Confirmar cita' : 'Siguiente'),
+                      child: Text(_activeStep == 5 ? 'Confirmar cita' : 'Siguiente'),
                     ),
                   ),
                 ],

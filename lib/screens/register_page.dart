@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/appointment_provider.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -431,6 +432,8 @@ class _RegisterPageState extends State<RegisterPage> {
                           );
                           if (!mounted) return;
                           if (success) {
+                            await context.read<AppointmentProvider>().connectSocket();
+                            if (!mounted) return;
                             _showPhotoUploadDialog(currentContext);
                           } else {
                             ScaffoldMessenger.of(currentContext).showSnackBar(

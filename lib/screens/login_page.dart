@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/appointment_provider.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -38,6 +39,8 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     if (success && mounted) {
+      await context.read<AppointmentProvider>().connectSocket();
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

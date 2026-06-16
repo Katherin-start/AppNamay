@@ -11,6 +11,7 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _profile;
   bool _initialized = false;
   bool _isNewUser = false;
+  final List<Map<String, dynamic>> _pendingAppointments = [];
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -19,6 +20,7 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? get profile => _profile;
   bool get initialized => _initialized;
   bool get isNewUser => _isNewUser;
+  List<Map<String, dynamic>> get pendingAppointments => List.unmodifiable(_pendingAppointments);
   
   /// Obtener el token de autenticación actual
   String? getAuthToken() => _authService.getAuthToken();
@@ -195,6 +197,11 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  void addPendingAppointment(Map<String, dynamic> appointment) {
+    _pendingAppointments.add(appointment);
+    notifyListeners();
   }
 
   void clearError() {

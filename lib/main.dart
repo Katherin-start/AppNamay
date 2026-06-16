@@ -6,8 +6,18 @@ import 'package:dental_namay_app/screens/home/home_screen.dart';
 import 'package:dental_namay_app/screens/profile_photo_screen.dart';
 import 'package:dental_namay_app/config/supabase_config.dart';
 import 'package:dental_namay_app/providers/auth_provider.dart';
+import 'package:dental_namay_app/providers/appointment_provider.dart';
+import 'package:dental_namay_app/providers/chat_provider.dart';
+import 'package:dental_namay_app/providers/theme_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+// ── Paleta global ────────────────────────────────────────────────
+const _kBluePrimary = Color(0xFF1D4ED8);
+const _kBlueDeep    = Color(0xFF1E3A8A);
+const _kBlueLight   = Color(0xFF3B82F6);
+const _kRedPrimary  = Color(0xFFDC2626);
+// ─────────────────────────────────────────────────────────────────
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,22 +31,76 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => AuthProvider())],
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Dental Namay',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1e3a8a)),
-          useMaterial3: true,
-        ),
-        home: const AuthGate(),
-        routes: {
-          '/register': (context) => const RegisterPage(),
-          '/terms': (context) => const TermsPage(),
-          '/security': (context) => const SecurityPolicyPage(),
-          '/home': (context) => const HomeScreen(),
-          '/login': (context) => const LoginPage(),
-          '/profilePhoto': (context) => const ProfilePhotoScreen(),
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AppointmentProvider(), lazy: false),
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'Dental Namay',
+            themeMode: themeProvider.themeMode,
+            theme: ThemeData(
+              brightness: Brightness.light,
+              colorScheme: const ColorScheme.light(
+                primary: _kBluePrimary,
+                secondary: _kRedPrimary,
+                surface: Colors.white,
+              ),
+              scaffoldBackgroundColor: const Color(0xFFF0F4FF),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: _kBluePrimary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              elevatedButtonTheme: ElevatedButtonThemeData(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _kBluePrimary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(16)),
+                  ),
+                ),
+              ),
+              useMaterial3: true,
+            ),
+            darkTheme: ThemeData(
+              brightness: Brightness.dark,
+              colorScheme: const ColorScheme.dark(
+                primary: _kBlueLight,
+                secondary: Color(0xFFEF4444),
+                surface: Color(0xFF111827),
+              ),
+              scaffoldBackgroundColor: const Color(0xFF080E1A),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: _kBlueDeep,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              elevatedButtonTheme: ElevatedButtonThemeData(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _kBlueLight,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(16)),
+                  ),
+                ),
+              ),
+              useMaterial3: true,
+            ),
+            home: const AuthGate(),
+            routes: {
+              '/register': (context) => const RegisterPage(),
+              '/terms': (context) => const TermsPage(),
+              '/security': (context) => const SecurityPolicyPage(),
+              '/home': (context) => const HomeScreen(),
+              '/login': (context) => const LoginPage(),
+              '/profilePhoto': (context) => const ProfilePhotoScreen(),
+            },
+          );
         },
       ),
     );
@@ -51,9 +115,9 @@ class AuthGate extends StatelessWidget {
     return Consumer<AuthProvider>(
       builder: (context, auth, _) {
         if (!auth.initialized) {
-          return Scaffold(
-            backgroundColor: const Color(0xFF1e3a8a),
-            body: const Center(
+          return const Scaffold(
+            backgroundColor: _kBlueDeep,
+            body: Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
               ),
