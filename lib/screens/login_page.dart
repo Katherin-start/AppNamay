@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/appointment_provider.dart';
+import 'forgot_password_screen.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -172,7 +173,9 @@ class _LoginPageState extends State<LoginPage> {
                           onPressed: authProvider.isLoading
                               ? null
                               : () {
-                                  // TODO: Implementar recuperación de contraseña
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                                  );
                                 },
                           child: const Text(
                             '¿Olvidaste tu contraseña?',

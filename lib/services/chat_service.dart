@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/foundation.dart';
 import '../config/backend_config.dart';
 import 'storage_service.dart';
@@ -66,13 +69,20 @@ class ChatMessage {
     required this.fecha,
   });
 
+  // Perú no usa horario de verano, siempre es UTC-5.
+  static DateTime _toPeruTime(DateTime dt) {
+    return dt.toUtc().add(const Duration(hours: -5));
+  }
+
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
     final rawFecha = j['fecha'] ?? j['fecha_envio'] ?? j['created_at'] ?? '';
     DateTime parsedDate;
     try {
-      parsedDate = (rawFecha as String).isNotEmpty ? DateTime.parse(rawFecha) : DateTime.now();
+      parsedDate = (rawFecha as String).isNotEmpty
+          ? _toPeruTime(DateTime.parse(rawFecha))
+          : _toPeruTime(DateTime.now());
     } catch (_) {
-      parsedDate = DateTime.now();
+      parsedDate = _toPeruTime(DateTime.now());
     }
     return ChatMessage(
       id: j['id']?.toString() ?? '',
@@ -156,5 +166,45 @@ class ChatService {
         body: jsonEncode({'userId': myId, 'otherUserId': withUserId}),
       );
     } catch (_) {}
+  }
+
+  /// Upload an attachment (image/document) as a chat message.
+  /// Expects the backend to accept a multipart POST to `BackendConfig.chatMessagesUrl`
+  /// with fields: `remitente_id`, `destinatario_id`, `tipo`, optional `contenido`, and file under `file`.
+  Future<Map<String, dynamic>?> uploadAttachment(
+    String remitenteId,
+    String destinatarioId,
+    File file,
+    String filename, {
+    String? mensaje,
+  }) async {
+    try {
+      final token = await _token();
+      if (token == null) return null;
+      final uri = Uri.parse(BackendConfig.chatMessagesUrl);
+      final req = http.MultipartRequest('POST', uri);
+      req.headers['Authorization'] = 'Bearer $token';
+      req.fields['remitente_id'] = remitenteId;
+      req.fields['destinatario_id'] = destinatarioId;
+      // Determine tipo by extension
+      final ext = (filename.split('.').length > 1) ? filename.split('.').last.toLowerCase() : '';
+      final isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].contains(ext);
+      req.fields['tipo'] = isImage ? 'imagen' : 'archivo';
+      if (mensaje != null) req.fields['contenido'] = mensaje;
+      final bytes = await file.readAsBytes();
+      req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+
+      final streamed = await req.send();
+      final res = await http.Response.fromStream(streamed);
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final body = jsonDecode(res.body);
+        if (body is Map<String, dynamic>) return body;
+        return {'message': body};
+      }
+      return null;
+    } catch (e) {
+      debugPrint('uploadAttachment error: $e');
+      return null;
+    }
   }
 }

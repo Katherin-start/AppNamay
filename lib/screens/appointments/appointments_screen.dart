@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/appointment_provider.dart';
 import 'book_appointment_screen.dart';
+import 'reschedule_appointment_screen.dart';
 
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({Key? key}) : super(key: key);
@@ -11,17 +12,36 @@ class AppointmentsScreen extends StatefulWidget {
   State<AppointmentsScreen> createState() => _AppointmentsScreenState();
 }
 
-class _AppointmentsScreenState extends State<AppointmentsScreen> {
+class _AppointmentsScreenState extends State<AppointmentsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     // Cargar citas al abrir la pantalla
     Future.microtask(() {
       context.read<AppointmentProvider>().loadAppointments();
     });
   }
 
-  Widget _buildAppointmentCard(BuildContext context, Map<String, dynamic> appointment) {
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  DateTime _aptDateTime(Map<String, dynamic> apt) {
+    final fecha = apt['fecha']?.toString() ?? '';
+    final hora = apt['hora']?.toString() ?? '00:00';
+    return DateTime.tryParse('$fecha $hora') ??
+        DateTime.tryParse(fecha) ??
+        DateTime(1900);
+  }
+
+  Widget _buildAppointmentCard(BuildContext context, Map<String, dynamic> appointment,
+      {bool isHistorial = false}) {
     final fecha = appointment['fecha']?.toString() ?? 'Fecha pendiente';
     final hora = appointment['hora']?.toString() ?? 'Hora pendiente';
     final odontologoObj = appointment['odontologo'];
@@ -125,6 +145,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                 );
                                 if (confirmed == true) {
                                   final success = await provider.markAppointmentProcessed(id, role);
+                                  if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text(success ? 'Cita marcada como procesada' : 'Error marcando cita')),
                                   );
@@ -149,12 +170,25 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  if (!isHistorial) ...[
+                    IconButton(
+                      icon: Icon(Icons.edit_calendar_outlined, size: 20, color: Colors.grey.shade600),
+                      tooltip: 'Reagendar cita',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => RescheduleAppointmentScreen(appointment: appointment),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                  const SizedBox(width: 4),
                   IconButton(
                     icon: Icon(Icons.delete, size: 20, color: Colors.grey.shade600),
-                    tooltip: 'Eliminar cita',
+                    tooltip: isHistorial ? 'Eliminar del historial' : 'Cancelar cita',
                     onPressed: () async {
-                      final id = appointment['id']?.toString();
+                      final id = appointment['id_backend']?.toString() ?? appointment['id']?.toString();
                       if (id == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('ID de la cita no disponible')),
@@ -162,19 +196,49 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         return;
                       }
 
+                      if (isHistorial) {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Eliminar del historial'),
+                            content: const Text('¿Deseas eliminar esta cita de tu historial local?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancelar'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Eliminar'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirmed == true) {
+                          final provider = Provider.of<AppointmentProvider>(context, listen: false);
+                          final success = await provider.deleteAppointmentLocal(id);
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(success ? 'Cita eliminada' : 'Error eliminando cita')),
+                          );
+                        }
+                        return;
+                      }
+
                       final confirmed = await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          title: const Text('Eliminar cita'),
-                          content: const Text('¿Deseas eliminar esta cita localmente?'),
+                          title: const Text('Cancelar cita'),
+                          content: const Text('¿Seguro que deseas cancelar esta cita?'),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancelar'),
+                              child: const Text('No'),
                             ),
                             TextButton(
                               onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Eliminar'),
+                              child: const Text('Sí, cancelar'),
                             ),
                           ],
                         ),
@@ -182,9 +246,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
                       if (confirmed == true) {
                         final provider = Provider.of<AppointmentProvider>(context, listen: false);
-                        final success = await provider.deleteAppointmentLocal(id);
+                        final success = await provider.cancelAppointment(id, 'Cancelada por el paciente');
+                        if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(success ? 'Cita eliminada' : 'Error eliminando cita')),
+                          SnackBar(
+                            content: Text(success
+                                ? 'Cita cancelada'
+                                : 'No se pudo cancelar la cita. Intenta nuevamente.'),
+                            backgroundColor: success ? Colors.green : Colors.red,
+                          ),
                         );
                       }
                     },
@@ -261,25 +331,54 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
 
+  Widget _buildTabList(List<Map<String, dynamic>> items, String emptyMessage,
+      {bool offerBooking = false, bool isHistorial = false}) {
+    return RefreshIndicator(
+      onRefresh: () => context.read<AppointmentProvider>().loadAppointments(),
+      child: items.isEmpty
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _buildEmptySection(
+                  emptyMessage,
+                  onAddTap: offerBooking
+                      ? () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const BookAppointmentScreen()),
+                          );
+                        }
+                      : null,
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              itemBuilder: (context, i) =>
+                  _buildAppointmentCard(context, items[i], isHistorial: isHistorial),
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final auth = Provider.of<AuthProvider>(context);
     final appointments = Provider.of<AppointmentProvider>(context);
-    final profile = auth.profile;
-    final userName = profile?['nombre']?.toString() ?? 'Usuario';
 
-    // Filtrar citas por estado
+    // Filtrar citas por estado y ordenarlas por fecha
     final pendientes = appointments.appointments
         .where((apt) => ['pendiente', 'pendiente_sincronizacion'].contains(apt['estado']?.toString().toLowerCase()))
-        .toList();
-    
+        .toList()
+      ..sort((a, b) => _aptDateTime(a).compareTo(_aptDateTime(b)));
+
     final proximas = appointments.appointments
         .where((apt) => ['programada', 'confirmada', 'en_curso'].contains(apt['estado']?.toString().toLowerCase()))
-        .toList();
-    
+        .toList()
+      ..sort((a, b) => _aptDateTime(a).compareTo(_aptDateTime(b)));
+
     final historial = appointments.appointments
         .where((apt) => ['cancelada', 'no_asistio'].contains(apt['estado']?.toString().toLowerCase()))
-        .toList();
+        .toList()
+      ..sort((a, b) => _aptDateTime(b).compareTo(_aptDateTime(a)));
 
     return Scaffold(
       appBar: AppBar(
@@ -287,6 +386,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         elevation: 0,
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          tabs: [
+            Tab(text: 'Próximas (${proximas.length})'),
+            Tab(text: 'Por confirmar (${pendientes.length})'),
+            Tab(text: 'Historial (${historial.length})'),
+          ],
+        ),
         actions: [
           // Botón para sincronizar citas
           Padding(
@@ -312,122 +423,55 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         ],
       ),
       body: SafeArea(
-        child: appointments.isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          children: [
+            if (appointments.errorMessage != null)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
                   children: [
-                    Text(
-                      'Bienvenido, $userName',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (appointments.errorMessage != null)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.red.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.error_outline, color: Colors.red.shade700),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                appointments.errorMessage!,
-                                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: 24),
-                    
-                    // === CITAS POR CONFIRMAR ===
-                    Text(
-                      'Citas por confirmar',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (pendientes.isEmpty)
-                      _buildEmptySection('No tienes citas por confirmar')
-                    else
-                      Column(
-                        children: pendientes.map((apt) => _buildAppointmentCard(context, apt)).toList(),
-                      ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // === PRÓXIMAS CITAS ===
-                    Text(
-                      'Próximas citas',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (proximas.isEmpty)
-                      _buildEmptySection(
-                        'No tienes citas pendientes',
-                        onAddTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const BookAppointmentScreen()),
-                          );
-                        },
-                      )
-                    else
-                      Column(
-                        children: proximas.map((apt) => _buildAppointmentCard(context, apt)).toList(),
-                      ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // === HISTORIAL DE CITAS ===
-                    Text(
-                      'Historial de citas',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (historial.isEmpty)
-                      _buildEmptySection('Sin historial de citas')
-                    else
-                      Column(
-                        children: historial.map((apt) => _buildAppointmentCard(context, apt)).toList(),
-                      ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // Botón para agendar nueva cita (visible siempre)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const BookAppointmentScreen()),
-                          );
-                        },
-                        icon: const Icon(Icons.add),
-                        label: const Text('+ Agendar nueva cita'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                        ),
+                    Icon(Icons.error_outline, color: Colors.red.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        appointments.errorMessage!,
+                        style: TextStyle(color: Colors.red.shade700, fontSize: 12),
                       ),
                     ),
                   ],
                 ),
               ),
+            Expanded(
+              child: appointments.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildTabList(proximas, 'No tienes citas próximas', offerBooking: true),
+                        _buildTabList(pendientes, 'No tienes citas por confirmar'),
+                        _buildTabList(historial, 'Sin historial de citas', isHistorial: true),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const BookAppointmentScreen()),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Agendar cita'),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
       ),
     );
   }

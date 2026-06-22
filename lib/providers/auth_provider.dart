@@ -139,6 +139,30 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> resetPasswordDirect({
+    required String email,
+    required String newPassword,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authService.resetPasswordDirect(
+        email: email,
+        newPassword: newPassword,
+      );
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<bool> fetchProfile() async {
     _isLoading = true;
     _errorMessage = null;
@@ -176,6 +200,38 @@ class AuthProvider extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> fetchDiscounts() async {
     return await _authService.fetchDiscounts();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchAvailableSlots(String doctorId, String fecha) async {
+    return await _authService.fetchAvailableSlots(doctorId, fecha);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchServices() async {
+    return await _authService.fetchServices();
+  }
+
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authService.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<bool> updateProfile(Map<String, dynamic> profileData) async {

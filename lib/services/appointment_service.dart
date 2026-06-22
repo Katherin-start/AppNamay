@@ -1,5 +1,7 @@
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'storage_service.dart';
 import '../config/backend_config.dart';
@@ -236,6 +238,113 @@ class AppointmentService {
     } catch (e) {
       debugPrint('❌ Error obteniendo pago: $e');
       return null;
+    }
+  }
+
+  String _mimeTypeForPath(String filePath) {
+    switch (filePath.toLowerCase().split('.').last) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  /// Subir la captura del comprobante de pago (ej. Yape) para un pago ya creado
+  Future<bool> uploadPaymentProof(String paymentId, File proofImage) async {
+    try {
+      final token = await _storage.getAuthToken();
+      if (token == null) {
+        debugPrint('⚠️ No se pudo subir comprobante: sin token de autenticación');
+        return false;
+      }
+
+      final uri = Uri.parse(BackendConfig.mobilePaymentProofUrl(paymentId));
+      final request = http.MultipartRequest('POST', uri);
+      request.headers['Authorization'] = 'Bearer $token';
+
+      final mimeType = _mimeTypeForPath(proofImage.path);
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'comprobante',
+          proofImage.path,
+          contentType: MediaType(mimeType.split('/').first, mimeType.split('/').last),
+        ),
+      );
+
+      final response = await request.send();
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('✅ Comprobante de pago subido para pago $paymentId');
+        return true;
+      }
+
+      final body = await response.stream.bytesToString();
+      debugPrint('❌ Error subiendo comprobante (${response.statusCode}): $body');
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error subiendo comprobante: $e');
+      return false;
+    }
+  }
+
+  /// Reagendar una cita existente (cambiar fecha/hora y, opcionalmente, método de pago)
+  Future<Map<String, dynamic>> rescheduleAppointment({
+    required String appointmentId,
+    required String fecha,
+    required String hora,
+    String? metodoPago,
+  }) async {
+    try {
+      final token = await _storage.getAuthToken();
+      if (token == null) {
+        throw Exception('Token de autenticación no disponible');
+      }
+
+      final payload = {
+        'fecha': fecha,
+        'hora': hora,
+        if (metodoPago != null) 'metodo_pago': metodoPago,
+        if (metodoPago != null) 'payment_method': metodoPago,
+      };
+
+      final response = await http.patch(
+        Uri.parse(BackendConfig.mobileAppointmentRescheduleUrl(appointmentId)),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return _extractCreateAppointmentResponse(data);
+      }
+
+      if (response.statusCode == 409) {
+        try {
+          final data = jsonDecode(response.body);
+          throw Exception(data['message'] ?? 'Horario no disponible');
+        } catch (_) {
+          throw Exception('Horario no disponible');
+        }
+      }
+
+      try {
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'No se pudo reagendar la cita');
+      } catch (_) {
+        throw Exception('Error al reagendar: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error reagendando cita: $e');
+      rethrow;
     }
   }
 

@@ -1,15 +1,22 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import '../../config/backend_config.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/appointment_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/appointment_service.dart';
+import '../../services/storage_service.dart';
 import '../appointments/appointments_screen.dart';
 import '../doctors/doctor_detail_screen.dart';
 import '../doctors/doctors_screen.dart';
 import '../chat/chat_list_screen.dart';
 import '../profile/profile_screen.dart';
 import '../profile/medical_info_screen.dart';
+import '../assistant/ai_assistant_screen.dart';
 
 // ── Paleta de colores ────────────────────────────────────────────
 const _kBluePrimary = Color(0xFF1D4ED8);
@@ -86,6 +93,19 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Scaffold(
         extendBody: true,
         body: IndexedStack(index: _selectedIndex, children: _screens),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        floatingActionButton: FloatingActionButton(
+          heroTag: 'ai_assistant_fab',
+          backgroundColor: isDark ? _kBlueLight : _kBluePrimary,
+          foregroundColor: Colors.white,
+          tooltip: 'Asistente IA',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AiAssistantScreen()),
+            );
+          },
+          child: const Icon(Icons.smart_toy_rounded),
+        ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
         child: Container(
@@ -876,39 +896,305 @@ class _EmptyState extends StatelessWidget {
 }
 
 // ── Next Appointment Card ────────────────────────────────────────
-class _NextAppointmentCard extends StatelessWidget {
+class _NextAppointmentCard extends StatefulWidget {
   final bool isDark;
   const _NextAppointmentCard({required this.isDark});
 
   @override
+  State<_NextAppointmentCard> createState() => _NextAppointmentCardState();
+}
+
+class _NextAppointmentCardState extends State<_NextAppointmentCard> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      if (mounted) context.read<AppointmentProvider>().loadAppointments();
+    });
+  }
+
+  Map<String, dynamic>? _nextAppointment(List<Map<String, dynamic>> appointments) {
+    const activeStates = {
+      'pendiente',
+      'pendiente_sincronizacion',
+      'programada',
+      'confirmada',
+      'en_curso',
+    };
+    final now = DateTime.now();
+    final upcoming = appointments.where((apt) {
+      final estado = apt['estado']?.toString().toLowerCase() ?? '';
+      if (!activeStates.contains(estado)) return false;
+      final fechaStr = apt['fecha']?.toString() ?? '';
+      final horaStr = apt['hora']?.toString() ?? '00:00';
+      final dt = DateTime.tryParse('$fechaStr $horaStr') ??
+          DateTime.tryParse(fechaStr);
+      return dt != null && !dt.isBefore(DateTime(now.year, now.month, now.day));
+    }).toList();
+
+    upcoming.sort((a, b) {
+      final da = DateTime.tryParse('${a['fecha']} ${a['hora'] ?? '00:00'}') ??
+          DateTime.tryParse(a['fecha']?.toString() ?? '') ??
+          DateTime(2100);
+      final db = DateTime.tryParse('${b['fecha']} ${b['hora'] ?? '00:00'}') ??
+          DateTime.tryParse(b['fecha']?.toString() ?? '') ??
+          DateTime(2100);
+      return da.compareTo(db);
+    });
+
+    return upcoming.isEmpty ? null : upcoming.first;
+  }
+
+  String _doctorName(Map<String, dynamic> apt) {
+    final odontologoObj = apt['odontologo'];
+    return apt['nombre_odontologo']?.toString() ??
+        apt['doctor']?.toString() ??
+        (odontologoObj is Map
+            ? '${odontologoObj['nombre'] ?? ''} ${odontologoObj['apellido'] ?? ''}'.trim()
+            : null) ??
+        'Odontólogo';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isDark = widget.isDark;
     final blue = isDark ? _kBlueLight : _kBluePrimary;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: isDark ? _kDarkCard : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: blue.withOpacity(0.25), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: blue.withOpacity(0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+    final appointments = context.watch<AppointmentProvider>().appointments;
+    final next = _nextAppointment(appointments);
+
+    final subtitle = next == null
+        ? 'No hay ninguna cita agendada'
+        : '${next['fecha']} · ${next['hora'] ?? ''}  ·  ${_doctorName(next)}';
+
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AppointmentsScreen())),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: isDark ? _kDarkCard : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: blue.withOpacity(0.25), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: blue.withOpacity(0.12),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: blue.withOpacity(0.1),
+              ),
+              child: Icon(Icons.calendar_today_rounded,
+                  color: blue, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tu proxima cita',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark
+                          ? const Color(0xFF94A3B8)
+                          : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: isDark
+                          ? Colors.white
+                          : const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios_rounded,
+                size: 15,
+                color: isDark
+                    ? const Color(0xFF475569)
+                    : Colors.grey.shade400),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Health Summary Card ──────────────────────────────────────────
+class _HealthSummaryCard extends StatefulWidget {
+  final bool isDark;
+  const _HealthSummaryCard({required this.isDark});
+
+  @override
+  State<_HealthSummaryCard> createState() => _HealthSummaryCardState();
+}
+
+class _HealthSummaryCardState extends State<_HealthSummaryCard> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _records = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final token = await StorageService().getAuthToken();
+      if (token == null) {
+        setState(() { _error = 'Sesión expirada'; _loading = false; });
+        return;
+      }
+      final res = await http.get(
+        Uri.parse(BackendConfig.mobileClinicalHistoryUrl),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = (body['history'] ?? []) as List;
+        setState(() {
+          _records = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          _loading = false;
+        });
+      } else {
+        setState(() { _error = 'No se pudo cargar el historial'; _loading = false; });
+      }
+    } catch (_) {
+      setState(() { _error = 'Sin conexión al servidor'; _loading = false; });
+    }
+  }
+
+  /// Calcula una conclusión a partir de diagnósticos/tratamientos/alertas
+  /// registrados en el historial clínico real del paciente.
+  ({String headline, String detail, Color color, IconData icon}) _conclusion() {
+    if (_records.isEmpty) {
+      return (
+        headline: 'Sin historial clínico aún',
+        detail: 'Cuando tengas tu primera consulta, aquí verás un resumen de tu salud dental.',
+        color: Colors.grey,
+        icon: Icons.health_and_safety_rounded,
+      );
+    }
+
+    final sorted = [..._records]..sort((a, b) {
+      final da = DateTime.tryParse(a['fecha']?.toString() ?? '') ?? DateTime(1900);
+      final db = DateTime.tryParse(b['fecha']?.toString() ?? '') ?? DateTime(1900);
+      return db.compareTo(da);
+    });
+
+    final hasAlergia = _records.any(
+        (r) => (r['tipo']?.toString() ?? '').toLowerCase().contains('alerg'));
+    final pendientes = _records.where((r) {
+      final tratamiento = r['tratamiento']?.toString().toLowerCase() ?? '';
+      return tratamiento.contains('pendiente') || tratamiento.contains('continuar');
+    }).length;
+
+    final ultimo = sorted.first;
+    final ultimaFecha = DateTime.tryParse(ultimo['fecha']?.toString() ?? '');
+    final diasDesdeUltima =
+        ultimaFecha != null ? DateTime.now().difference(ultimaFecha).inDays : null;
+    final ultimoDiagnostico = ultimo['diagnostico']?.toString();
+
+    if (hasAlergia) {
+      return (
+        headline: 'Tienes alergias registradas',
+        detail: 'Tu historial incluye alertas de alergia. Coméntalo siempre con tu odontóloga antes de un tratamiento.',
+        color: _kRedPrimary,
+        icon: Icons.warning_amber_rounded,
+      );
+    }
+
+    if (pendientes > 0) {
+      return (
+        headline: 'Tienes $pendientes tratamiento${pendientes == 1 ? '' : 's'} en seguimiento',
+        detail: ultimoDiagnostico != null
+            ? 'Último diagnóstico: $ultimoDiagnostico. Continúa con las indicaciones de tu odontóloga.'
+            : 'Hay tratamientos que requieren seguimiento. Revisa tu historial para más detalles.',
+        color: const Color(0xFFF59E0B),
+        icon: Icons.pending_actions_rounded,
+      );
+    }
+
+    if (diasDesdeUltima != null && diasDesdeUltima > 180) {
+      return (
+        headline: 'Hace ${(diasDesdeUltima / 30).floor()} meses de tu última visita',
+        detail: 'Se recomienda una revisión cada 6 meses. Considera agendar una cita de control.',
+        color: const Color(0xFFF59E0B),
+        icon: Icons.event_repeat_rounded,
+      );
+    }
+
+    return (
+      headline: 'Tu salud dental va bien',
+      detail: ultimoDiagnostico != null
+          ? 'Último diagnóstico: $ultimoDiagnostico. No hay alertas ni tratamientos pendientes.'
+          : 'No hay alertas ni tratamientos pendientes registrados en tu historial.',
+      color: const Color(0xFF16A34A),
+      icon: Icons.check_circle_rounded,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final blue = isDark ? _kBlueLight : _kBluePrimary;
+
+    Widget content;
+    if (_loading) {
+      content = SizedBox(
+        height: 80,
+        child: Center(
+          child: CircularProgressIndicator(color: blue),
+        ),
+      );
+    } else if (_error != null) {
+      content = Column(
+        children: [
+          Icon(Icons.error_outline_rounded, size: 40, color: _kRedLight),
+          const SizedBox(height: 10),
+          Text(
+            _error!,
+            style: TextStyle(
+              color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+              fontSize: 13,
+            ),
+            textAlign: TextAlign.center,
           ),
         ],
-      ),
-      child: Row(
+      );
+    } else {
+      final c = _conclusion();
+      content = Row(
         children: [
           Container(
             width: 50,
             height: 50,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: blue.withOpacity(0.1),
+              color: c.color.withOpacity(0.12),
             ),
-            child: Icon(Icons.calendar_today_rounded,
-                color: blue, size: 22),
+            child: Icon(c.icon, color: c.color, size: 24),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -916,84 +1202,55 @@ class _NextAppointmentCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Tu proxima cita',
+                  c.headline,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  c.detail,
                   style: TextStyle(
                     fontSize: 12,
+                    height: 1.4,
                     color: isDark
                         ? const Color(0xFF94A3B8)
                         : const Color(0xFF64748B),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'No hay ninguna cita agendada',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: isDark
-                        ? Colors.white
-                        : const Color(0xFF0F172A),
-                  ),
-                ),
               ],
             ),
           ),
-          Icon(Icons.arrow_forward_ios_rounded,
-              size: 15,
-              color: isDark
-                  ? const Color(0xFF475569)
-                  : Colors.grey.shade400),
         ],
-      ),
-    );
-  }
-}
+      );
+    }
 
-// ── Health Summary Card ──────────────────────────────────────────
-class _HealthSummaryCard extends StatelessWidget {
-  final bool isDark;
-  const _HealthSummaryCard({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    final blue = isDark ? _kBlueLight : _kBluePrimary;
-    return Container(
-      width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-      decoration: BoxDecoration(
-        color: isDark ? _kDarkCard : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDark ? _kDarkBorder : const Color(0xFFE0E7FF),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isDark
-                ? Colors.black.withOpacity(0.2)
-                : blue.withOpacity(0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const MedicalHistoryTab())),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: isDark ? _kDarkCard : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDark ? _kDarkBorder : const Color(0xFFE0E7FF),
+            width: 1.5,
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.health_and_safety_rounded,
-              size: 44, color: blue.withOpacity(0.35)),
-          const SizedBox(height: 10),
-          Text(
-            'No hay resumen disponible',
-            style: TextStyle(
+          boxShadow: [
+            BoxShadow(
               color: isDark
-                  ? const Color(0xFF94A3B8)
-                  : Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
-              fontSize: 14,
+                  ? Colors.black.withOpacity(0.2)
+                  : blue.withOpacity(0.06),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
-          ),
-        ],
+          ],
+        ),
+        child: content,
       ),
     );
   }
@@ -1610,8 +1867,88 @@ class PrescriptionsScreen extends StatelessWidget {
   }
 }
 
-class PaymentsScreen extends StatelessWidget {
+class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({Key? key}) : super(key: key);
+
+  @override
+  State<PaymentsScreen> createState() => _PaymentsScreenState();
+}
+
+class _PaymentsScreenState extends State<PaymentsScreen> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _payments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final service = AppointmentService();
+      final appointments = await service.getUserAppointments();
+
+      final results = await Future.wait(appointments.map((apt) async {
+        final id = (apt['id_backend'] ?? apt['id'])?.toString();
+        if (id == null || id.startsWith('local_')) return null;
+        final payment = await service.getAppointmentPayment(id);
+        if (payment == null) return null;
+        return {'appointment': apt, 'payment': payment};
+      }));
+
+      final list = results.whereType<Map<String, dynamic>>().toList();
+      list.sort((a, b) {
+        final da = DateTime.tryParse(
+                (a['payment'] as Map)['fecha']?.toString() ?? '') ??
+            DateTime(1900);
+        final db = DateTime.tryParse(
+                (b['payment'] as Map)['fecha']?.toString() ?? '') ??
+            DateTime(1900);
+        return db.compareTo(da);
+      });
+
+      setState(() { _payments = list; _loading = false; });
+    } catch (e) {
+      setState(() { _error = 'Sin conexión al servidor'; _loading = false; });
+    }
+  }
+
+  Color _statusColor(String estadoValidacion) {
+    switch (estadoValidacion.toUpperCase()) {
+      case 'CONFIRMADO':
+      case 'APROBADO':
+        return const Color(0xFF16A34A);
+      case 'RECHAZADO':
+        return _kRedPrimary;
+      default:
+        return const Color(0xFFF59E0B);
+    }
+  }
+
+  String _statusLabel(String estadoValidacion) {
+    switch (estadoValidacion.toUpperCase()) {
+      case 'CONFIRMADO':
+      case 'APROBADO':
+        return 'Confirmado';
+      case 'RECHAZADO':
+        return 'Rechazado';
+      default:
+        return 'Por confirmar';
+    }
+  }
+
+  String _doctorName(Map<String, dynamic> apt) {
+    final odontologoObj = apt['odontologo'];
+    return apt['nombre_odontologo']?.toString() ??
+        apt['doctor']?.toString() ??
+        (odontologoObj is Map
+            ? '${odontologoObj['nombre'] ?? ''} ${odontologoObj['apellido'] ?? ''}'.trim()
+            : null) ??
+        'Odontólogo';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1622,85 +1959,434 @@ class PaymentsScreen extends StatelessWidget {
         title: const Text('Pagos'),
         backgroundColor: isDark ? _kBlueDeep : _kBluePrimary,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _load,
+            tooltip: 'Actualizar',
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tus pagos',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_loading)
+                  SizedBox(
+                    height: 100,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: isDark ? _kBlueLight : _kBluePrimary,
+                      ),
+                    ),
+                  )
+                else if (_error != null)
+                  _EmptyState(
+                    isDark: isDark,
+                    icon: Icons.error_outline_rounded,
+                    message: _error!,
+                    iconColor: _kRedLight,
+                  )
+                else if (_payments.isEmpty)
+                  _EmptyState(
+                    isDark: isDark,
+                    icon: Icons.receipt_long_rounded,
+                    message: 'Aún no has realizado ningún pago',
+                  )
+                else
+                  ..._payments.map((item) {
+                    final apt = item['appointment'] as Map<String, dynamic>;
+                    final payment = item['payment'] as Map<String, dynamic>;
+                    final estadoValidacion =
+                        payment['estado_validacion']?.toString() ?? 'POR_CONFIRMAR';
+                    final color = _statusColor(estadoValidacion);
+                    final monto = double.tryParse(
+                            (payment['monto_final'] ?? payment['monto'])
+                                ?.toString() ??
+                            '') ??
+                        0.0;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: GestureDetector(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PaymentDetailScreen(
+                              payment: payment,
+                              appointment: apt,
+                            ),
+                          ),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDark ? _kDarkCard : Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: isDark
+                                  ? _kDarkBorder
+                                  : const Color(0xFFE0E7FF),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: isDark
+                                    ? Colors.black.withOpacity(0.2)
+                                    : Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 46,
+                                height: 46,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: color.withOpacity(0.12),
+                                ),
+                                child: Icon(Icons.receipt_long_rounded,
+                                    color: color, size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      payment['servicio']?.toString() ??
+                                          'Pago de cita',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: isDark
+                                            ? Colors.white
+                                            : const Color(0xFF0F172A),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${payment['fecha'] ?? apt['fecha'] ?? ''}  ·  ${_doctorName(apt)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark
+                                            ? const Color(0xFF94A3B8)
+                                            : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'S/ ${monto.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: isDark
+                                          ? Colors.white
+                                          : const Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: color.withOpacity(0.12),
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      _statusLabel(estadoValidacion),
+                                      style: TextStyle(
+                                        color: color,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                const SizedBox(height: 28),
+                Text(
+                  'Pago con Yape',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Escanea este QR con tu app de Yape para realizar el pago de tu cita.',
+                  style: TextStyle(
+                    color: isDark
+                        ? const Color(0xFF94A3B8)
+                        : Colors.grey.shade700,
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Image.asset('assets/qryape.png',
+                        width: 220, fit: BoxFit.contain),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Asegúrate de enviar el monto correcto y conservar el comprobante.',
+                  style: TextStyle(
+                    color: isDark
+                        ? const Color(0xFF94A3B8)
+                        : Colors.grey.shade700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 100),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Payment Detail Screen
+// ════════════════════════════════════════════════════════════════
+class PaymentDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> payment;
+  final Map<String, dynamic> appointment;
+
+  const PaymentDetailScreen({
+    Key? key,
+    required this.payment,
+    required this.appointment,
+  }) : super(key: key);
+
+  String _doctorName() {
+    final odontologoObj = appointment['odontologo'];
+    return appointment['nombre_odontologo']?.toString() ??
+        appointment['doctor']?.toString() ??
+        (odontologoObj is Map
+            ? '${odontologoObj['nombre'] ?? ''} ${odontologoObj['apellido'] ?? ''}'.trim()
+            : null) ??
+        'Odontólogo';
+  }
+
+  Color _statusColor(String estadoValidacion) {
+    switch (estadoValidacion.toUpperCase()) {
+      case 'CONFIRMADO':
+      case 'APROBADO':
+        return const Color(0xFF16A34A);
+      case 'RECHAZADO':
+        return _kRedPrimary;
+      default:
+        return const Color(0xFFF59E0B);
+    }
+  }
+
+  String _statusLabel(String estadoValidacion) {
+    switch (estadoValidacion.toUpperCase()) {
+      case 'CONFIRMADO':
+      case 'APROBADO':
+        return 'Confirmado';
+      case 'RECHAZADO':
+        return 'Rechazado';
+      default:
+        return 'Por confirmar';
+    }
+  }
+
+  Widget _row(String label, String? value, bool isDark) {
+    if (value == null || value.trim().isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+              color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? Colors.white : const Color(0xFF0F172A),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    final estadoValidacion =
+        payment['estado_validacion']?.toString() ?? 'POR_CONFIRMAR';
+    final color = _statusColor(estadoValidacion);
+    final monto = double.tryParse(
+            (payment['monto_final'] ?? payment['monto'])?.toString() ?? '') ??
+        0.0;
+    final comprobante = payment['comprobante']?.toString();
+
+    return Scaffold(
+      backgroundColor: isDark ? _kDarkBg : _kLightBg,
+      appBar: AppBar(
+        title: const Text('Detalle de pago'),
+        backgroundColor: isDark ? _kBlueDeep : _kBluePrimary,
+        foregroundColor: Colors.white,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 16),
-              Text(
-                'Pago con Yape',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color:
-                      isDark ? Colors.white : const Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Escanea este QR con tu app de Yape para realizar el pago de tu cita.',
-                style: TextStyle(
-                  color: isDark
-                      ? const Color(0xFF94A3B8)
-                      : Colors.grey.shade700,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 28),
               Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
+                  color: isDark ? _kDarkCard : Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
+                  border: Border.all(
+                    color: isDark ? _kDarkBorder : const Color(0xFFE0E7FF),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'S/ ${monto.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _statusLabel(estadoValidacion),
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ],
                 ),
-                padding: const EdgeInsets.all(16),
-                child: Image.asset('assets/qryape.png',
-                    fit: BoxFit.contain),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: isDark ? _kDarkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? _kDarkBorder : const Color(0xFFE0E7FF),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _row('Servicio', payment['servicio']?.toString(), isDark),
+                    _row('Fecha', payment['fecha']?.toString(), isDark),
+                    _row('Método de pago', payment['metodo_pago']?.toString(),
+                        isDark),
+                    _row('Descripción', payment['descripcion']?.toString(),
+                        isDark),
+                    _row('Cita', '${appointment['fecha'] ?? ''} · ${appointment['hora'] ?? ''}',
+                        isDark),
+                    _row('Odontólogo', _doctorName(), isDark),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
               Text(
-                'Asegurate de enviar el monto correcto y conservar el comprobante.',
+                'Comprobante',
                 style: TextStyle(
-                  color: isDark
-                      ? const Color(0xFF94A3B8)
-                      : Colors.grey.shade700,
-                  fontSize: 13,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                          'Abre Yape y escanea el QR para continuar.'),
+              const SizedBox(height: 10),
+              if (comprobante != null && comprobante.startsWith('http'))
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.network(
+                    comprobante,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => _EmptyState(
+                      isDark: isDark,
+                      icon: Icons.broken_image_outlined,
+                      message: 'No se pudo cargar el comprobante',
                     ),
-                  );
-                },
-                icon: const Icon(Icons.qr_code_scanner),
-                label: const Text('Abrir instrucciones de pago'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      isDark ? _kBlueLight : _kBluePrimary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+                  ),
+                )
+              else
+                _EmptyState(
+                  isDark: isDark,
+                  icon: Icons.receipt_long_outlined,
+                  message: 'Aún no se ha subido un comprobante para este pago',
                 ),
-              ),
+              const SizedBox(height: 40),
             ],
           ),
         ),

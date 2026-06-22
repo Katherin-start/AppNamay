@@ -9,6 +9,7 @@ import 'package:dental_namay_app/providers/auth_provider.dart';
 import 'package:dental_namay_app/providers/appointment_provider.dart';
 import 'package:dental_namay_app/providers/chat_provider.dart';
 import 'package:dental_namay_app/providers/theme_provider.dart';
+import 'package:dental_namay_app/providers/assistant_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -36,6 +37,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AppointmentProvider(), lazy: false),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => AssistantProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {

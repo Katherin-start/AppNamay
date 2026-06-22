@@ -457,6 +457,52 @@ class AuthService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchAvailableSlots(String doctorId, String fecha) async {
+    final uri = Uri.parse(BackendConfig.mobileAvailabilityUrl(doctorId, fecha));
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+    };
+
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is Map<String, dynamic> && data['slots'] is List) {
+        return (data['slots'] as List)
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+      return [];
+    }
+
+    throw Exception(_parseBackendError(response.body, response.statusCode));
+  }
+
+  Future<List<Map<String, dynamic>>> fetchServices() async {
+    final uri = Uri.parse(BackendConfig.mobileServicesUrl);
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+    };
+
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is Map<String, dynamic> && data['services'] is List) {
+        return (data['services'] as List)
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+      return [];
+    }
+
+    throw Exception(_parseBackendError(response.body, response.statusCode));
+  }
+
   Future<Map<String, dynamic>> fetchDoctorDetail(String doctorId) async {
     try {
       final uri = Uri.parse(BackendConfig.doctorDetailUrl(doctorId));
@@ -629,6 +675,10 @@ class AuthService {
 
         final data = jsonDecode(response.body);
         if (data is Map<String, dynamic>) {
+          // El backend devuelve { "code": "...", "profile": {...} }
+          if (data['profile'] is Map) {
+            return Map<String, dynamic>.from(data['profile'] as Map);
+          }
           return data;
         }
         throw Exception('Respuesta de actualización de perfil inválida');
@@ -672,11 +722,64 @@ class AuthService {
     return _authToken;
   }
 
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    if (_authToken == null) {
+      throw Exception('No hay token de autenticación disponible');
+    }
+
+    final response = await http.put(
+      Uri.parse(BackendConfig.changePasswordUrl),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_authToken',
+      },
+      body: jsonEncode({
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      }),
+    );
+
+    if (response.statusCode == 200) return;
+
+    String message = 'No se pudo cambiar la contraseña';
+    try {
+      final data = jsonDecode(response.body);
+      if (data is Map && data['message'] != null) message = data['message'].toString();
+    } catch (_) {}
+    throw Exception(message);
+  }
+
   Future<void> resetPassword(String email) async {
     try {
       await SupabaseConfig.auth.resetPasswordForEmail(email);
     } catch (e) {
       rethrow;
     }
+  }
+
+  /// Restablece la contraseña directamente con el correo (sin código de
+  /// verificación), a pedido explícito del producto. Nota: esto no confirma
+  /// que quien hace la solicitud sea dueño del correo.
+  Future<void> resetPasswordDirect({
+    required String email,
+    required String newPassword,
+  }) async {
+    final response = await http.post(
+      Uri.parse(BackendConfig.resetPasswordDirectUrl),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'new_password': newPassword}),
+    );
+
+    if (response.statusCode == 200) return;
+
+    String message = 'No se pudo cambiar la contraseña';
+    try {
+      final data = jsonDecode(response.body);
+      if (data is Map && data['message'] != null) message = data['message'].toString();
+    } catch (_) {}
+    throw Exception(message);
   }
 }

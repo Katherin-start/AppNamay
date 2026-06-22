@@ -6,6 +6,7 @@ typedef AppointmentCallback  = void Function(Map<String, dynamic> data);
 typedef ChatMessageCallback  = void Function(Map<String, dynamic> data);
 typedef StatusChangeCallback = void Function(String userId, bool online);
 typedef TypingCallback       = void Function(String fromId, bool isTyping);
+typedef CallEventCallback    = void Function(Map<String, dynamic> data);
 
 class SocketService {
   static final SocketService instance = SocketService._internal();
@@ -22,6 +23,16 @@ class SocketService {
   StatusChangeCallback? _onUserStatus;
   TypingCallback?       _onTyping;
 
+  // Call (WebRTC signaling) handlers
+  CallEventCallback? _onIncomingCall;
+  CallEventCallback? _onCallAccepted;
+  CallEventCallback? _onCallRejected;
+  CallEventCallback? _onCallCancelled;
+  CallEventCallback? _onCallEnded;
+  CallEventCallback? _onWebrtcOffer;
+  CallEventCallback? _onWebrtcAnswer;
+  CallEventCallback? _onWebrtcIceCandidate;
+
   SocketService._internal();
 
   // ── Registration ────────────────────────────────────────────
@@ -34,6 +45,15 @@ class SocketService {
   void registerUserStatusHandler(StatusChangeCallback cb)    => _onUserStatus           = cb;
   void registerTypingHandler(TypingCallback cb)              => _onTyping               = cb;
 
+  void registerIncomingCallHandler(CallEventCallback cb)        => _onIncomingCall        = cb;
+  void registerCallAcceptedHandler(CallEventCallback cb)        => _onCallAccepted        = cb;
+  void registerCallRejectedHandler(CallEventCallback cb)        => _onCallRejected        = cb;
+  void registerCallCancelledHandler(CallEventCallback cb)       => _onCallCancelled       = cb;
+  void registerCallEndedHandler(CallEventCallback cb)           => _onCallEnded           = cb;
+  void registerWebrtcOfferHandler(CallEventCallback cb)         => _onWebrtcOffer         = cb;
+  void registerWebrtcAnswerHandler(CallEventCallback cb)        => _onWebrtcAnswer        = cb;
+  void registerWebrtcIceCandidateHandler(CallEventCallback cb)  => _onWebrtcIceCandidate  = cb;
+
   // ── Connect ─────────────────────────────────────────────────
 
   void connect({required String token, String? userId}) {
@@ -42,7 +62,7 @@ class SocketService {
       _socket?.disconnect();
 
       _socket = IO.io(base, <String, dynamic>{
-        'transports': ['websocket'],
+        'transports': ['websocket', 'polling'],
         'forceNew': true,
         'query': {'token': token, 'userId': userId},
       });
@@ -56,6 +76,12 @@ class SocketService {
       });
 
       _socket?.on('disconnect', (_) => print('SocketService: disconnected'));
+      _socket?.on('connect_error', (err) => print('SocketService: connect_error -> $err'));
+      _socket?.on('error', (err) => print('SocketService: error -> $err'));
+      _socket?.on('reconnect', (_) {
+        print('SocketService: reconnected');
+        if (userId != null) _socket?.emit('join', userId);
+      });
 
       // ── Appointment events ──────────────────────────────────
 
@@ -105,6 +131,17 @@ class SocketService {
           }
         } catch (_) {}
       });
+
+      // ── Call events (señalización WebRTC) ───────────────────
+
+      _socket?.on('incoming_call',        (payload) => _safeCall(_onIncomingCall, payload));
+      _socket?.on('call_accepted',        (payload) => _safeCall(_onCallAccepted, payload));
+      _socket?.on('call_rejected',        (payload) => _safeCall(_onCallRejected, payload));
+      _socket?.on('call_cancelled',       (payload) => _safeCall(_onCallCancelled, payload));
+      _socket?.on('call_ended',           (payload) => _safeCall(_onCallEnded, payload));
+      _socket?.on('webrtc_offer',         (payload) => _safeCall(_onWebrtcOffer, payload));
+      _socket?.on('webrtc_answer',        (payload) => _safeCall(_onWebrtcAnswer, payload));
+      _socket?.on('webrtc_ice_candidate', (payload) => _safeCall(_onWebrtcIceCandidate, payload));
     } catch (e) {
       print('SocketService connect error: $e');
     }
@@ -131,6 +168,40 @@ class SocketService {
 
   void emitMarkAsRead({required String userId, required String otherUserId}) {
     _socket?.emit('mark_as_read', {'userId': userId, 'otherUserId': otherUserId});
+  }
+
+  // ── Call (señalización WebRTC) ──────────────────────────────
+
+  void emitCallInvite({required String fromId, required String toId, String? fromNombre}) {
+    _socket?.emit('call_invite', {'from_id': fromId, 'to_id': toId, 'from_nombre': fromNombre});
+  }
+
+  void emitCallAccept({required String fromId, required String toId}) {
+    _socket?.emit('call_accept', {'from_id': fromId, 'to_id': toId});
+  }
+
+  void emitCallReject({required String fromId, required String toId, String? reason}) {
+    _socket?.emit('call_reject', {'from_id': fromId, 'to_id': toId, 'reason': reason});
+  }
+
+  void emitCallCancel({required String fromId, required String toId}) {
+    _socket?.emit('call_cancel', {'from_id': fromId, 'to_id': toId});
+  }
+
+  void emitCallEnd({required String fromId, required String toId}) {
+    _socket?.emit('call_end', {'from_id': fromId, 'to_id': toId});
+  }
+
+  void emitWebrtcOffer({required String fromId, required String toId, required Map<String, dynamic> sdp}) {
+    _socket?.emit('webrtc_offer', {'from_id': fromId, 'to_id': toId, 'sdp': sdp});
+  }
+
+  void emitWebrtcAnswer({required String fromId, required String toId, required Map<String, dynamic> sdp}) {
+    _socket?.emit('webrtc_answer', {'from_id': fromId, 'to_id': toId, 'sdp': sdp});
+  }
+
+  void emitWebrtcIceCandidate({required String fromId, required String toId, required Map<String, dynamic> candidate}) {
+    _socket?.emit('webrtc_ice_candidate', {'from_id': fromId, 'to_id': toId, 'candidate': candidate});
   }
 
   // ── Disconnect ───────────────────────────────────────────────

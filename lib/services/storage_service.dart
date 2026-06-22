@@ -20,6 +20,20 @@ class StorageService {
   }
 
   // ============================================
+  // PREFERENCIAS - Almacenamiento local genérico
+  // ============================================
+
+  Future<bool> getBoolPref(String key, {bool defaultValue = true}) async {
+    await init();
+    return _prefs.getBool(key) ?? defaultValue;
+  }
+
+  Future<void> setBoolPref(String key, bool value) async {
+    await init();
+    await _prefs.setBool(key, value);
+  }
+
+  // ============================================
   // CITAS - Almacenamiento local
   // ============================================
 

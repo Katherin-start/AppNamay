@@ -89,7 +89,7 @@ class ChatProvider extends ChangeNotifier {
       senderId: myId,
       contenido: contenido.trim(),
       leido: false,
-      fecha: DateTime.now(),
+      fecha: DateTime.now().toUtc().add(const Duration(hours: -5)), // hora de Perú (UTC-5)
     );
     final list = _messages.putIfAbsent(contactId, () => []);
     list.add(tempMsg);

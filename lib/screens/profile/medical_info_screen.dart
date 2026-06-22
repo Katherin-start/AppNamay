@@ -228,7 +228,9 @@ class _RecordCardState extends State<_RecordCard> {
                   if (_notEmpty(r['medicamentos']))
                     _Field(label: 'Medicamentos', value: r['medicamentos']),
                   if (_notEmpty(r['notas']))
-                    _Field(label: 'Notas', value: r['notas'], isLast: true),
+                    _Field(label: 'Notas', value: r['notas']),
+                  if (_archivos(r['archivos']).isNotEmpty)
+                    _AttachmentsRow(urls: _archivos(r['archivos'])),
                 ],
               ),
             ),
@@ -241,6 +243,13 @@ class _RecordCardState extends State<_RecordCard> {
   bool _notEmpty(dynamic v) =>
       v != null && v.toString().trim().isNotEmpty;
 
+  List<String> _archivos(dynamic v) {
+    if (v is List) {
+      return v.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList();
+    }
+    return const [];
+  }
+
   IconData _iconForTipo(String tipo) {
     final t = tipo.toLowerCase();
     if (t.contains('diagnos')) return Icons.medical_information;
@@ -249,6 +258,80 @@ class _RecordCardState extends State<_RecordCard> {
     if (t.contains('alerg')) return Icons.warning_amber;
     if (t.contains('cirugía') || t.contains('cirugia')) return Icons.content_cut;
     return Icons.description_outlined;
+  }
+}
+
+class _AttachmentsRow extends StatelessWidget {
+  final List<String> urls;
+  const _AttachmentsRow({required this.urls});
+
+  void _openFullscreen(BuildContext context, String url) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            child: Image.network(
+              url,
+              errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Imágenes adjuntas',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade500,
+                  letterSpacing: 0.5)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: urls.map((url) => GestureDetector(
+              onTap: () => _openFullscreen(context, url),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  url,
+                  width: 64,
+                  height: 64,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (_, child, progress) => progress == null
+                      ? child
+                      : Container(
+                          width: 64,
+                          height: 64,
+                          color: Colors.grey.shade200,
+                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                  errorBuilder: (_, __, ___) => Container(
+                    width: 64,
+                    height: 64,
+                    color: Colors.grey.shade200,
+                    child: const Icon(Icons.broken_image, color: Colors.grey, size: 24),
+                  ),
+                ),
+              ),
+            )).toList(),
+          ),
+        ],
+      ),
+    );
   }
 }
 

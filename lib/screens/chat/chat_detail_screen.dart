@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/chat_service.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../../services/socket_service.dart';
+import '../../services/call_service.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String contactId;
@@ -30,10 +34,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isTyping     = false;
   bool _otherTyping  = false;
   bool _loading      = true;
+  late final CallService _callService;
 
   @override
   void initState() {
     super.initState();
+    final myNombre = context.read<AuthProvider>().profile?['nombre']?.toString() ?? 'Paciente';
+    _callService = CallService(myId: widget.myId, myNombre: myNombre);
+    _callService.addListener(_onCallStateChanged);
     _load();
     // Listen for message_sent confirmation
     SocketService.instance.registerMessageSentHandler((data) {
@@ -48,6 +56,33 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         setState(() => _otherTyping = isTyping);
       }
     });
+  }
+
+  Future<void> _pickAndSendAttachment() async {
+    try {
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      if (xfile == null) return;
+      final file = File(xfile.path);
+      final filename = xfile.path.split(RegExp(r'[\\\/]')).last;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subiendo imagen...')));
+      final res = await ChatService().uploadAttachment(
+        widget.myId,
+        widget.contactId,
+        file,
+        filename,
+      );
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (res != null) {
+        context.read<ChatProvider>().onMessageSentConfirmed(Map<String, dynamic>.from(res), widget.contactId);
+        _scrollToBottom();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error subiendo imagen')));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
   }
 
   Future<void> _load() async {
@@ -92,12 +127,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
+  void _onCallStateChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     _controller.dispose();
     _scrollCtrl.dispose();
     context.read<ChatProvider>().clearActiveContact();
     _setTyping(false);
+    _callService.removeListener(_onCallStateChanged);
+    _callService.dispose();
     super.dispose();
   }
 
@@ -153,54 +194,190 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ],
         ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : messages.isEmpty
-                    ? Center(
-                        child: Text(
-                          'Escribe el primer mensaje',
-                          style: TextStyle(color: Colors.grey.shade500),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollCtrl,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                        itemCount: messages.length,
-                        itemBuilder: (_, i) {
-                          final msg  = messages[i];
-                          final mine = msg.isMine(widget.myId);
-                          final showDate = i == 0 ||
-                              messages[i].fecha.day != messages[i - 1].fecha.day;
-                          return Column(
-                            children: [
-                              if (showDate) _DateDivider(date: msg.fecha),
-                              _MessageBubble(msg: msg, mine: mine, primaryColor: primary),
-                            ],
-                          );
-                        },
-                      ),
-          ),
-          if (_otherTyping)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '${widget.contactName} está escribiendo...',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontStyle: FontStyle.italic),
-                ),
-              ),
-            ),
-          _InputBar(
-            controller: _controller,
-            onSend: _send,
-            onChanged: (v) => _setTyping(v.isNotEmpty),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call),
+            tooltip: 'Llamar',
+            onPressed: _callService.status == CallStatus.idle
+                ? () => _callService.startCall(widget.contactId, widget.contactName)
+                : null,
           ),
         ],
+      ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : messages.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Escribe el primer mensaje',
+                              style: TextStyle(color: Colors.grey.shade500),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: _scrollCtrl,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                            itemCount: messages.length,
+                            itemBuilder: (_, i) {
+                              final msg  = messages[i];
+                              final mine = msg.isMine(widget.myId);
+                              final showDate = i == 0 ||
+                                  messages[i].fecha.day != messages[i - 1].fecha.day;
+                              return Column(
+                                children: [
+                                  if (showDate) _DateDivider(date: msg.fecha),
+                                  _MessageBubble(msg: msg, mine: mine, primaryColor: primary),
+                                ],
+                              );
+                            },
+                          ),
+              ),
+              if (_otherTyping)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${widget.contactName} está escribiendo...',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                ),
+              _InputBar(
+                controller: _controller,
+                onSend: _send,
+                onChanged: (v) => _setTyping(v.isNotEmpty),
+                onPickAttachment: _pickAndSendAttachment,
+              ),
+            ],
+          ),
+          if (_callService.status != CallStatus.idle)
+            _CallOverlay(call: _callService, contactPhoto: widget.contactPhoto),
+        ],
+      ),
+    );
+  }
+}
+
+class _CallOverlay extends StatelessWidget {
+  final CallService call;
+  final String? contactPhoto;
+
+  const _CallOverlay({required this.call, this.contactPhoto});
+
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isRinging = call.status == CallStatus.ringing;
+    final isCalling = call.status == CallStatus.calling;
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.85),
+        child: SafeArea(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 44,
+                backgroundColor: Colors.white24,
+                backgroundImage: contactPhoto != null ? NetworkImage(contactPhoto!) : null,
+                child: contactPhoto == null
+                    ? Text(
+                        (call.peerNombre?.isNotEmpty ?? false) ? call.peerNombre![0].toUpperCase() : '?',
+                        style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                      )
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                call.peerNombre ?? '',
+                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isRinging
+                    ? 'Llamada entrante...'
+                    : isCalling
+                        ? 'Llamando...'
+                        : _formatDuration(call.callDuration),
+                style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14),
+              ),
+              if (call.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  call.errorMessage!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                ),
+              ],
+              const SizedBox(height: 48),
+              if (isRinging)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _CallButton(
+                      icon: Icons.call_end,
+                      color: Colors.red,
+                      onTap: call.rejectCall,
+                    ),
+                    const SizedBox(width: 32),
+                    _CallButton(
+                      icon: Icons.call,
+                      color: Colors.green,
+                      onTap: call.acceptCall,
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _CallButton(
+                      icon: call.muted ? Icons.mic_off : Icons.mic,
+                      color: Colors.white24,
+                      onTap: call.toggleMute,
+                    ),
+                    const SizedBox(width: 32),
+                    _CallButton(
+                      icon: Icons.call_end,
+                      color: Colors.red,
+                      onTap: call.hangUp,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CallButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CallButton({required this.icon, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: Icon(icon, color: Colors.white, size: 28),
       ),
     );
   }
@@ -280,7 +457,7 @@ class _DateDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now   = DateTime.now();
+    final now   = DateTime.now().toUtc().add(const Duration(hours: -5)); // hora de Perú (UTC-5)
     final today = DateTime(now.year, now.month, now.day);
     final d     = DateTime(date.year, date.month, date.day);
     String label;
@@ -314,11 +491,13 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final ValueChanged<String> onChanged;
+  final VoidCallback? onPickAttachment;
 
   const _InputBar({
     required this.controller,
     required this.onSend,
     required this.onChanged,
+    this.onPickAttachment,
   });
 
   @override
@@ -351,6 +530,12 @@ class _InputBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          if (onPickAttachment != null)
+            IconButton(
+              icon: const Icon(Icons.attach_file),
+              onPressed: onPickAttachment,
+            ),
+          const SizedBox(width: 4),
           GestureDetector(
             onTap: onSend,
             child: Container(

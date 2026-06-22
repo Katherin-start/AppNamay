@@ -72,5 +72,7 @@
 	<string>Esta app necesita acceso a tu galería para seleccionar tu foto de perfil.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Esta app necesita permiso para guardar fotos en tu galería.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Esta app necesita acceso a tu micrófono para realizar llamadas con tu odontólogo.</string>
 </dict>
 </plist>

@@ -16,39 +16,20 @@ class BookAppointmentScreen extends StatefulWidget {
 class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   DateTime _selectedDate = DateTime.now();
   String? _selectedTime;
-  String _consultationReason = '';
   Map<String, dynamic>? _selectedDentist;
   Map<String, dynamic>? _selectedDiscount;
+  Map<String, dynamic>? _selectedService;
   Future<List<Map<String, dynamic>>>? _odontologosFuture;
   Future<List<Map<String, dynamic>>>? _discountsFuture;
+  Future<List<Map<String, dynamic>>>? _servicesFuture;
+  Future<List<Map<String, dynamic>>>? _slotsFuture;
+  String? _slotsKey;
+  String? _selectedTurno;
   bool _odontologosFutureInitialized = false;
   int _activeStep = 0;
   String _selectedPaymentMethod = 'Yape';
   File? _paymentScreenshot;
   bool _isPickingScreenshot = false;
-
-  final List<String> _times = [
-    '04:00 PM',
-    '04:30 PM',
-    '05:00 PM',
-    '05:30 PM',
-    '06:00 PM',
-    '06:30 PM',
-    '07:00 PM',
-    '07:30 PM',
-    '08:00 PM',
-    '08:30 PM',
-    '09:00 PM',
-  ];
-
-  final List<String> _reasons = [
-    'Control de rutina',
-    'Consulta por dolor dental',
-    'Revisión preventiva',
-    'Tratamiento de caries',
-    'Otro',
-  ];
-  int _selectedReasonIndex = 0;
 
   bool _isSelectedDateToday() {
     final now = DateTime.now();
@@ -57,20 +38,17 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         _selectedDate.day == now.day;
   }
 
-  bool _isTimeBeforeNow(String time12h) {
+  String get _selectedFechaStr =>
+      '${_selectedDate.year.toString().padLeft(4, '0')}'
+      '-${_selectedDate.month.toString().padLeft(2, '0')}'
+      '-${_selectedDate.day.toString().padLeft(2, '0')}';
+
+  bool _isTimeBeforeNow(String hora24) {
     if (!_isSelectedDateToday()) return false;
 
-    final parts = time12h.split(' ');
-    final hourMinute = parts[0].split(':');
-    int hour = int.parse(hourMinute[0]);
-    final minute = int.parse(hourMinute[1]);
-    final amPm = parts[1];
-
-    if (amPm == 'PM' && hour != 12) {
-      hour += 12;
-    } else if (amPm == 'AM' && hour == 12) {
-      hour = 0;
-    }
+    final parts = hora24.split(':');
+    final hour = int.parse(parts[0]);
+    final minute = int.parse(parts[1]);
 
     final now = DateTime.now();
     final selectedDateTime = DateTime(
@@ -82,6 +60,87 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     );
 
     return selectedDateTime.isBefore(now);
+  }
+
+  String _formatTime12h(String hora24) {
+    final parts = hora24.split(':');
+    int hour = int.parse(parts[0]);
+    final minute = parts[1];
+    final amPm = hour >= 12 ? 'PM' : 'AM';
+    if (hour == 0) {
+      hour = 12;
+    } else if (hour > 12) {
+      hour -= 12;
+    }
+    return '${hour.toString().padLeft(2, '0')}:$minute $amPm';
+  }
+
+  void _refreshSlotsIfNeeded() {
+    final doctorId = _selectedDentist?['id']?.toString();
+    if (doctorId == null) return;
+    final key = '$doctorId|$_selectedFechaStr';
+    if (_slotsKey == key && _slotsFuture != null) return;
+    _slotsKey = key;
+    _selectedTurno = null;
+    _slotsFuture = Provider.of<AuthProvider>(context, listen: false)
+        .fetchAvailableSlots(doctorId, _selectedFechaStr);
+  }
+
+  String _formatTurnoLabel(String turno) {
+    switch (turno.toLowerCase()) {
+      case 'mañana':
+        return 'Mañana';
+      case 'tarde':
+        return 'Tarde';
+      case 'noche':
+        return 'Noche';
+      default:
+        return turno.isEmpty ? 'Otro' : turno[0].toUpperCase() + turno.substring(1);
+    }
+  }
+
+  Widget _buildTimeSlotButton(Map<String, dynamic> slot) {
+    final hora24 = slot['hora']?.toString() ?? '';
+    final selected = hora24 == _selectedTime;
+    final disabled = slot['disponible'] != true || _isTimeBeforeNow(hora24);
+    return GestureDetector(
+      onTap: disabled ? null : () => setState(() => _selectedTime = hora24),
+      child: SizedBox(
+        width: 128,
+        height: 44,
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? Colors.white
+                : disabled
+                    ? Colors.grey.shade200
+                    : Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : disabled
+                      ? Colors.grey.shade300
+                      : Colors.grey.shade300,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Text(
+            _formatTime12h(hora24),
+            style: TextStyle(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : disabled
+                      ? Colors.grey.shade500
+                      : null,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _onConfirm() async {
@@ -105,6 +164,16 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       return;
     }
 
+    if (_computeTotalPrice() <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona un servicio válido antes de confirmar.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     // Usar AppointmentProvider para crear cita
     if (!mounted) return;
     
@@ -113,24 +182,8 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       listen: false,
     );
 
-    final fecha = '${_selectedDate.year.toString().padLeft(4, '0')}'
-        '-${_selectedDate.month.toString().padLeft(2, '0')}'
-        '-${_selectedDate.day.toString().padLeft(2, '0')}';
-
-    // Extraer hora en formato 24h (ej: "16:00")
-    final timeList = _selectedTime!.split(':');
-    int hour = int.parse(timeList[0]);
-    final minute = timeList[1].split(' ')[0];
-    
-    // Si es PM, sumar 12 (excepto si es 12:00 PM)
-    if (_selectedTime!.contains('PM') && hour != 12) {
-      hour += 12;
-    } else if (_selectedTime!.contains('AM') && hour == 12) {
-      hour = 0;
-    }
-    
-    final formattedHour = hour.toString().padLeft(2, '0');
-    final hora = '$formattedHour:$minute';
+    final fecha = _selectedFechaStr;
+    final hora = _selectedTime!;
 
     // Mostrar loading
     showDialog(
@@ -147,12 +200,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         hora: hora,
         idOdontologo: _selectedDentist!['id'] ?? '',
         nombreOdontologo: _selectedDentist!['nombre'] ?? 'Odontólogo',
-        monto: 100.0,
+        monto: _computeTotalPrice(),
         metodoPago: _selectedPaymentMethod,
-        servicio: _selectedDiscount != null
-            ? _selectedDiscount!['nombre']?.toString() ?? 'Cita'
-            : 'Cita',
-        descripcion: _consultationReason.isNotEmpty ? _consultationReason : null,
+        servicio: _selectedService?['nombre']?.toString() ?? 'Cita',
+        paymentProof: _selectedPaymentMethod == 'Yape' ? _paymentScreenshot : null,
       );
 
       if (mounted) {
@@ -218,10 +269,6 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       _showStepError('Selecciona un horario válido que no haya pasado.');
       return;
     }
-    if (_activeStep == 3 && _reasons[_selectedReasonIndex] == 'Otro' && _consultationReason.trim().isEmpty) {
-      _showStepError('Escribe el motivo de tu consulta.');
-      return;
-    }
     if (_activeStep == 4 && _selectedPaymentMethod == 'Yape' && _paymentScreenshot == null) {
       _showStepError('Selecciona la captura de pantalla del pago para continuar.');
       return;
@@ -271,7 +318,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     final especialidad = dentist['especialidad']?.toString() ?? dentist['especialidad_nombre']?.toString() ?? dentist['rol']?.toString() ?? '';
 
     return GestureDetector(
-      onTap: () => setState(() => _selectedDentist = dentist),
+      onTap: () => setState(() {
+        _selectedDentist = dentist;
+        _selectedTime = null;
+      }),
       child: Container(
         decoration: BoxDecoration(
           color: selected ? Colors.blue.shade50 : Colors.white,
@@ -437,7 +487,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     if (tipo.contains('porcentaje')) {
       return '${valor.toStringAsFixed(valor.truncateToDouble() == valor ? 0 : 1)}%';
     }
-    return '\$${valor.toStringAsFixed(valor.truncateToDouble() == valor ? 0 : 2)}';
+    return 'S/ ${valor.toStringAsFixed(valor.truncateToDouble() == valor ? 0 : 2)}';
   }
 
   double _computeDiscountAmount(double basePrice, Map<String, dynamic> discount) {
@@ -447,6 +497,17 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       return basePrice * valor / 100.0;
     }
     return valor;
+  }
+
+  double _computeBasePrice() {
+    return double.tryParse(_selectedService?['precio']?.toString() ?? '') ?? 0.0;
+  }
+
+  double _computeTotalPrice() {
+    final basePrice = _computeBasePrice();
+    final discount = _selectedDiscount;
+    final discountAmount = discount != null ? _computeDiscountAmount(basePrice, discount) : 0.0;
+    return (basePrice - discountAmount).clamp(0.0, double.infinity);
   }
 
   String _formatDateRange(Map<String, dynamic> discount) {
@@ -516,6 +577,50 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     );
   }
 
+  Widget _buildServiceCard(Map<String, dynamic> service, bool selected) {
+    final nombre = service['nombre']?.toString() ?? 'Servicio';
+    final descripcion = service['descripcion']?.toString() ?? '';
+    final precio = double.tryParse(service['precio']?.toString() ?? '') ?? 0.0;
+
+    return GestureDetector(
+      onTap: () => setState(() => _selectedService = service),
+      child: Container(
+        decoration: BoxDecoration(
+          color: selected ? Colors.blue.shade50 : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (descripcion.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(descripcion, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  ],
+                ],
+              ),
+            ),
+            Text(
+              'S/ ${precio.toStringAsFixed(2)}',
+              style: TextStyle(
+                color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade800,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
@@ -532,10 +637,8 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
         ? selectedDentistName!
         : 'No se encuentra especialista hasta el momento';
     final String? specialistSpecialty = hasSelectedDentist ? selectedDentistSpecialty : null;
-    const basePrice = 45.0;
     final selectedDiscount = _selectedDiscount;
-    final discountAmount = selectedDiscount != null ? _computeDiscountAmount(basePrice, selectedDiscount) : 0.0;
-    final totalPrice = (basePrice - discountAmount).clamp(0.0, double.infinity);
+    final totalPrice = _computeTotalPrice();
     final discountLabel = selectedDiscount != null ? _formatDiscountValue(selectedDiscount) : null;
 
     return Scaffold(
@@ -719,7 +822,10 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                           initialDate: _selectedDate,
                           firstDate: DateTime.now().subtract(const Duration(days: 0)),
                           lastDate: DateTime.now().add(const Duration(days: 365)),
-                          onDateChanged: (d) => setState(() => _selectedDate = d),
+                          onDateChanged: (d) => setState(() {
+                            _selectedDate = d;
+                            _selectedTime = null;
+                          }),
                         ),
                       ],
                     ),
@@ -730,52 +836,109 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                 const SizedBox(height: 18),
                 const Text('Horarios disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _times.map((t) {
-                    final selected = t == _selectedTime;
-                    final disabled = _isTimeBeforeNow(t);
-                    return GestureDetector(
-                      onTap: disabled ? null : () => setState(() => _selectedTime = t),
-                      child: SizedBox(
-                        width: 128,
-                        height: 44,
-                        child: Container(
-                          alignment: Alignment.center,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                Builder(builder: (context) {
+                  _refreshSlotsIfNeeded();
+                  return FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _slotsFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (snapshot.hasError) {
+                        return Container(
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: selected
-                                ? Colors.white
-                                : disabled
-                                    ? Colors.grey.shade200
-                                    : Theme.of(context).cardColor,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: selected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : disabled
-                                      ? Colors.grey.shade300
-                                      : Colors.grey.shade300,
-                              width: selected ? 2 : 1,
-                            ),
+                            color: Theme.of(context).colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            t,
-                            style: TextStyle(
-                              color: selected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : disabled
-                                      ? Colors.grey.shade500
-                                      : null,
-                              fontWeight: FontWeight.w700,
+                            'Error al cargar horarios: ${snapshot.error}',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.onErrorContainer,
+                                ),
+                          ),
+                        );
+                      }
+
+                      final slots = snapshot.data ?? [];
+                      if (slots.isEmpty) {
+                        return Card(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              'No hay horarios de atención configurados para esta fecha.',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
                             ),
                           ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
+                        );
+                      }
+
+                      final grupos = <String, List<Map<String, dynamic>>>{};
+                      for (final slot in slots) {
+                        final turno = slot['turno']?.toString() ?? 'otro';
+                        grupos.putIfAbsent(turno, () => []).add(slot);
+                      }
+                      const ordenTurnos = ['mañana', 'tarde', 'noche'];
+                      final turnosOrdenados = grupos.keys.toList()
+                        ..sort((a, b) {
+                          final ia = ordenTurnos.indexOf(a);
+                          final ib = ordenTurnos.indexOf(b);
+                          return (ia == -1 ? ordenTurnos.length : ia)
+                              .compareTo(ib == -1 ? ordenTurnos.length : ib);
+                        });
+
+                      if (_selectedTurno == null || !grupos.containsKey(_selectedTurno)) {
+                        _selectedTurno = turnosOrdenados.first;
+                      }
+                      final turnoSlots = grupos[_selectedTurno] ?? [];
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: turnosOrdenados.map((turno) {
+                              final isSelected = turno == _selectedTurno;
+                              return Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: GestureDetector(
+                                    onTap: () => setState(() => _selectedTurno = turno),
+                                    child: Container(
+                                      alignment: Alignment.center,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).cardColor,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _formatTurnoLabel(turno),
+                                        style: TextStyle(
+                                          color: isSelected ? Colors.white : Colors.grey.shade800,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: turnoSlots.map((slot) => _buildTimeSlotButton(slot)).toList(),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }),
                 const SizedBox(height: 12),
                 Container(
                   width: double.infinity,
@@ -792,47 +955,58 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
               ],
               if (_activeStep == 3) ...[
                 const SizedBox(height: 18),
-                const Text('Motivo de la consulta', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text('Selecciona el servicio', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: List.generate(_reasons.length, (index) {
-                    final selected = index == _selectedReasonIndex;
-                    return GestureDetector(
-                      onTap: () => setState(() => _selectedReasonIndex = index),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _servicesFuture ??= Provider.of<AuthProvider>(context, listen: false).fetchServices(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (snapshot.hasError) {
+                      return Container(
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).cardColor,
+                          color: Theme.of(context).colorScheme.errorContainer,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-                          ),
                         ),
                         child: Text(
-                          _reasons[index],
-                          style: TextStyle(
-                            color: selected ? Colors.white : Colors.grey.shade800,
-                            fontWeight: FontWeight.w600,
+                          'Error al cargar tarifas: ${snapshot.error}',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onErrorContainer,
+                              ),
+                        ),
+                      );
+                    }
+
+                    final services = snapshot.data ?? [];
+                    if (services.isEmpty) {
+                      return Card(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'No hay tarifas configuradas por ahora.',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
                           ),
                         ),
-                      ),
+                      );
+                    }
+
+                    _selectedService ??= services.first;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: services.map((service) {
+                        final selected = _selectedService != null && _selectedService!['id'] == service['id'];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildServiceCard(service, selected),
+                        );
+                      }).toList(),
                     );
-                  }),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  maxLines: 3,
-                  onChanged: (value) => setState(() => _consultationReason = value),
-                  decoration: InputDecoration(
-                    hintText: _reasons[_selectedReasonIndex] == 'Otro'
-                        ? 'Escribe el motivo de la consulta'
-                        : 'Opcional: agrega detalles adicionales',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true,
-                    fillColor: Theme.of(context).cardColor,
-                  ),
+                  },
                 ),
                 const SizedBox(height: 16),
                 const Text('Descuentos disponibles', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -1053,22 +1227,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('Horario'),
-                            Text(_selectedTime ?? 'No seleccionado'),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Motivo'),
-                            Expanded(
-                              child: Text(
-                                _reasons[_selectedReasonIndex] == 'Otro'
-                                    ? (_consultationReason.isEmpty ? 'Otro' : _consultationReason)
-                                    : _reasons[_selectedReasonIndex],
-                                textAlign: TextAlign.right,
-                              ),
-                            ),
+                            Text(_selectedTime != null ? _formatTime12h(_selectedTime!) : 'No seleccionado'),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -1107,7 +1266,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('Total a pagar', style: TextStyle(fontWeight: FontWeight.bold)),
-                            Text('\$${totalPrice.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('S/ ${totalPrice.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ],

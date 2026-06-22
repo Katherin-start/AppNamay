@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/appointment_service.dart';
 import '../services/storage_service.dart';
@@ -117,6 +118,7 @@ class AppointmentProvider extends ChangeNotifier {
     String metodoPago = 'Yape',
     String? servicio,
     String? descripcion,
+    File? paymentProof,
   }) async {
     try {
       _isLoading = true;
@@ -133,6 +135,16 @@ class AppointmentProvider extends ChangeNotifier {
         servicio: servicio,
         descripcion: descripcion,
       );
+
+      // Si el paciente adjuntó la captura del pago (ej. Yape), subirla al
+      // pago recién creado para que cajero/recepción la vean en el panel.
+      final paymentId = result['payment']?['id']?.toString();
+      if (paymentProof != null && paymentId != null) {
+        final uploaded = await _appointmentService.uploadPaymentProof(paymentId, paymentProof);
+        if (!uploaded) {
+          debugPrint('⚠️ No se pudo subir el comprobante de pago para la cita recién creada');
+        }
+      }
 
       // Guardar localmente
       final appointment = {
@@ -268,6 +280,80 @@ class AppointmentProvider extends ChangeNotifier {
       _errorMessage = 'Error cancelando cita: $e';
       _isLoading = false;
       debugPrint('❌ $_errorMessage');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Reagendar una cita: cambia fecha/hora y, opcionalmente, método de pago.
+  /// Si se adjunta [paymentProof] (ej. nueva captura de Yape), se sube al pago.
+  Future<bool> rescheduleAppointment({
+    required String appointmentId,
+    required String fecha,
+    required String hora,
+    String? metodoPago,
+    File? paymentProof,
+  }) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      final result = await _appointmentService.rescheduleAppointment(
+        appointmentId: appointmentId,
+        fecha: fecha,
+        hora: hora,
+        metodoPago: metodoPago,
+      );
+
+      final paymentId = result['payment']?['id']?.toString();
+      if (paymentProof != null && paymentId != null) {
+        final uploaded = await _appointmentService.uploadPaymentProof(paymentId, paymentProof);
+        if (!uploaded) {
+          debugPrint('⚠️ No se pudo subir el comprobante del pago reagendado');
+        }
+      }
+
+      final index = _appointments.indexWhere(
+          (apt) => apt['id'] == appointmentId || apt['id_backend'] == appointmentId);
+      if (index != -1) {
+        _appointments[index]['fecha'] = fecha;
+        _appointments[index]['hora'] = hora;
+        if (metodoPago != null) _appointments[index]['metodo_pago'] = metodoPago;
+        _appointments[index]['estado'] =
+            result['appointment']?['estado'] ?? _appointments[index]['estado'];
+        await _storage.updateAppointment(_appointments[index]['id'] ?? appointmentId, {
+          'fecha': fecha,
+          'hora': hora,
+          if (metodoPago != null) 'metodo_pago': metodoPago,
+        });
+      }
+
+      debugPrint('✅ Cita reagendada: $appointmentId');
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Error reagendando cita: $e';
+      debugPrint('❌ $_errorMessage');
+
+      // Guardar el cambio localmente como pendiente de sincronización
+      final index = _appointments.indexWhere(
+          (apt) => apt['id'] == appointmentId || apt['id_backend'] == appointmentId);
+      if (index != -1) {
+        _appointments[index]['fecha'] = fecha;
+        _appointments[index]['hora'] = hora;
+        if (metodoPago != null) _appointments[index]['metodo_pago'] = metodoPago;
+        _appointments[index]['sincronizado'] = false;
+        await _storage.updateAppointment(_appointments[index]['id'] ?? appointmentId, {
+          'fecha': fecha,
+          'hora': hora,
+          if (metodoPago != null) 'metodo_pago': metodoPago,
+          'sincronizado': false,
+        });
+      }
+
+      _isLoading = false;
       notifyListeners();
       return false;
     }
