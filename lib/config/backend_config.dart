@@ -41,6 +41,7 @@ class BackendConfig {
   static const String mobileChatContactsUrl = '$apiBaseUrl/mobile/chat/contacts';
   static const String assistantChatUrl = '$apiBaseUrl/mobile/assistant/chat';
   static const String chatMessagesUrl = '$apiBaseUrl/chat/messages';
+  static const String chatUploadUrl = '$apiBaseUrl/chat/upload';
   static String chatHistoryUrl(String userId) => '$apiBaseUrl/chat/messages/$userId';
   static const String chatMarkReadUrl = '$apiBaseUrl/chat/messages/mark-as-read';
   static const String chatUnreadCountUrl = '$apiBaseUrl/chat/unread-count';

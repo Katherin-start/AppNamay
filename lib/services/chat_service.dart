@@ -59,6 +59,9 @@ class ChatMessage {
   final String contenido;
   final bool leido;
   final DateTime fecha;
+  final String tipo;
+  final String? attachmentUrl;
+  final String? attachmentName;
 
   ChatMessage({
     required this.id,
@@ -67,7 +70,13 @@ class ChatMessage {
     required this.contenido,
     required this.leido,
     required this.fecha,
+    this.tipo = 'texto',
+    this.attachmentUrl,
+    this.attachmentName,
   });
+
+  bool get isImage => tipo == 'imagen' && attachmentUrl != null;
+  bool get isAttachment => attachmentUrl != null;
 
   // Perú no usa horario de verano, siempre es UTC-5.
   static DateTime _toPeruTime(DateTime dt) {
@@ -91,6 +100,9 @@ class ChatMessage {
       contenido: j['mensaje']?.toString() ?? j['contenido']?.toString() ?? '',
       leido: j['leido'] == true,
       fecha: parsedDate,
+      tipo: j['tipo']?.toString() ?? 'texto',
+      attachmentUrl: j['attachment_url']?.toString(),
+      attachmentName: j['attachment_name']?.toString(),
     );
   }
 
@@ -169,8 +181,9 @@ class ChatService {
   }
 
   /// Upload an attachment (image/document) as a chat message.
-  /// Expects the backend to accept a multipart POST to `BackendConfig.chatMessagesUrl`
-  /// with fields: `remitente_id`, `destinatario_id`, `tipo`, optional `contenido`, and file under `file`.
+  /// Posts a multipart request to `BackendConfig.chatUploadUrl`, which the backend
+  /// handles with multer + Supabase storage (see `uploadChatAttachment` controller).
+  /// Expected fields: `destinatario_id`, optional `caption`, and file under `file`.
   Future<Map<String, dynamic>?> uploadAttachment(
     String remitenteId,
     String destinatarioId,
@@ -181,16 +194,11 @@ class ChatService {
     try {
       final token = await _token();
       if (token == null) return null;
-      final uri = Uri.parse(BackendConfig.chatMessagesUrl);
+      final uri = Uri.parse(BackendConfig.chatUploadUrl);
       final req = http.MultipartRequest('POST', uri);
       req.headers['Authorization'] = 'Bearer $token';
-      req.fields['remitente_id'] = remitenteId;
       req.fields['destinatario_id'] = destinatarioId;
-      // Determine tipo by extension
-      final ext = (filename.split('.').length > 1) ? filename.split('.').last.toLowerCase() : '';
-      final isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].contains(ext);
-      req.fields['tipo'] = isImage ? 'imagen' : 'archivo';
-      if (mensaje != null) req.fields['contenido'] = mensaje;
+      if (mensaje != null) req.fields['caption'] = mensaje;
       final bytes = await file.readAsBytes();
       req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
 
@@ -198,9 +206,10 @@ class ChatService {
       final res = await http.Response.fromStream(streamed);
       if (res.statusCode == 200 || res.statusCode == 201) {
         final body = jsonDecode(res.body);
-        if (body is Map<String, dynamic>) return body;
+        if (body is Map<String, dynamic>) return body['message'] ?? body;
         return {'message': body};
       }
+      debugPrint('uploadAttachment failed: ${res.statusCode} ${res.body}');
       return null;
     } catch (e) {
       debugPrint('uploadAttachment error: $e');

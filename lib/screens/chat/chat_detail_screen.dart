@@ -423,13 +423,63 @@ class _MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            Text(
-              msg.contenido,
-              style: TextStyle(
-                color: mine ? Colors.white : Colors.black87,
-                fontSize: 14.5,
+            if (msg.isImage)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  msg.attachmentUrl!,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) => progress == null
+                      ? child
+                      : const SizedBox(
+                          width: 160,
+                          height: 160,
+                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                  errorBuilder: (context, error, stack) => const SizedBox(
+                    width: 160,
+                    height: 160,
+                    child: Icon(Icons.broken_image, color: Colors.grey),
+                  ),
+                ),
+              )
+            else if (msg.isAttachment)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.insert_drive_file, size: 18, color: mine ? Colors.white : Colors.black54),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      msg.attachmentName ?? 'Archivo',
+                      style: TextStyle(
+                        color: mine ? Colors.white : Colors.black87,
+                        fontSize: 14.5,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Text(
+                msg.contenido,
+                style: TextStyle(
+                  color: mine ? Colors.white : Colors.black87,
+                  fontSize: 14.5,
+                ),
               ),
-            ),
+            if (msg.isImage && msg.contenido.isNotEmpty && msg.contenido != msg.attachmentName)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  msg.contenido,
+                  style: TextStyle(
+                    color: mine ? Colors.white : Colors.black87,
+                    fontSize: 14.5,
+                  ),
+                ),
+              ),
             const SizedBox(height: 4),
             Text(
               _fmt(msg.fecha),
