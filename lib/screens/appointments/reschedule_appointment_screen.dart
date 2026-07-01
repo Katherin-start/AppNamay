@@ -209,11 +209,14 @@ class _RescheduleAppointmentScreenState extends State<RescheduleAppointmentScree
                       '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
                   trailing: TextButton(
                     onPressed: () async {
+                      final now = DateTime.now();
+                      final today = DateTime(now.year, now.month, now.day);
+                      final initDate = _selectedDate.isBefore(today) ? today : _selectedDate;
                       final d = await showDatePicker(
                         context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                        initialDate: initDate,
+                        firstDate: today,
+                        lastDate: today.add(const Duration(days: 365)),
                       );
                       if (d != null) {
                         setState(() {

@@ -170,8 +170,15 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
         return;
       }
 
-      // Actualizar perfil con la URL pública
-      final payload = {'foto_perfil': publicUrl};
+      // Actualizar perfil con la URL pública. Se envía el perfil completo
+      // (no solo foto_perfil) porque el backend no soporta actualizaciones
+      // parciales: si falta 'correo' en el body, el endpoint PUT /mobile/profile
+      // revienta con 500 "Cannot read properties of undefined (reading 'correo')".
+      final currentProfile = authProvider.profile ?? <String, dynamic>{};
+      final payload = {
+        ...currentProfile,
+        'foto_perfil': publicUrl,
+      };
       // ignore: avoid_print
       print('ProfilePhotoScreen: updating profile with payload=$payload');
       final success = await authProvider.updateProfile(payload);

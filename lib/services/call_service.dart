@@ -36,13 +36,21 @@ class CallService extends ChangeNotifier {
   final List<RTCIceCandidate> _pendingCandidates = [];
   Timer? _durationTimer;
 
-  /// Pide el permiso de micrófono y espera la respuesta antes de tocar
+  /// Pide los permisos necesarios y espera la respuesta antes de tocar
   /// cualquier API de WebRTC: si el motor nativo intenta abrir el
   /// dispositivo de audio sin permiso confirmado, aborta el proceso (crash
   /// nativo, no una excepción de Dart que se pueda capturar).
+  ///
+  /// En Android 12+ (API 31+), flutter_webrtc enumera dispositivos de audio
+  /// Bluetooth al iniciar el stream local; sin el permiso en runtime de
+  /// `bluetoothConnect` esa enumeración lanza una SecurityException nativa
+  /// que cierra la app de inmediato, sin pasar por ningún try/catch de Dart.
   Future<bool> _ensureMicPermission() async {
-    final status = await Permission.microphone.request();
-    return status.isGranted;
+    final results = await [
+      Permission.microphone,
+      Permission.bluetoothConnect,
+    ].request();
+    return results[Permission.microphone]?.isGranted ?? false;
   }
 
   Future<MediaStream> _getLocalStream() async {

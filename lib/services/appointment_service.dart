@@ -313,6 +313,9 @@ class AppointmentService {
         if (metodoPago != null) 'payment_method': metodoPago,
       };
 
+      debugPrint('📤 PATCH reschedule -> ${BackendConfig.mobileAppointmentRescheduleUrl(appointmentId)}');
+      debugPrint('📦 Payload: ${jsonEncode(payload)}');
+
       final response = await http.patch(
         Uri.parse(BackendConfig.mobileAppointmentRescheduleUrl(appointmentId)),
         headers: {
@@ -336,12 +339,15 @@ class AppointmentService {
         }
       }
 
+      debugPrint('❌ Reschedule ${response.statusCode}: ${response.body}');
+      String errorMsg;
       try {
         final errorData = jsonDecode(response.body);
-        throw Exception(errorData['message'] ?? 'No se pudo reagendar la cita');
+        errorMsg = errorData['message']?.toString() ?? errorData['error']?.toString() ?? 'No se pudo reagendar la cita';
       } catch (_) {
-        throw Exception('Error al reagendar: ${response.statusCode}');
+        errorMsg = response.body.isNotEmpty ? response.body : 'Error al reagendar: ${response.statusCode}';
       }
+      throw Exception(errorMsg);
     } catch (e) {
       debugPrint('❌ Error reagendando cita: $e');
       rethrow;

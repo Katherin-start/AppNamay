@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import '../providers/appointment_provider.dart';
 import 'forgot_password_screen.dart';
 
 class LoginPage extends StatefulWidget {
@@ -40,8 +39,8 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     if (success && mounted) {
-      await context.read<AppointmentProvider>().connectSocket();
-      if (!mounted) return;
+      // AppointmentProvider es lazy: se crea al entrar a Home y ahí mismo
+      // conecta el socket, sin retrasar la navegación post-login.
       Navigator.pushReplacementNamed(context, '/home');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

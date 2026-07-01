@@ -258,9 +258,11 @@ class AppointmentProvider extends ChangeNotifier {
           await _appointmentService.cancelAppointment(appointmentId, reason);
 
       if (success) {
-        // Actualizar localmente
-        final index = _appointments
-            .indexWhere((apt) => apt['id'] == appointmentId);
+        // Actualizar localmente. Se compara con .toString() porque el backend
+        // devuelve id como número (5) pero appointmentId es String ("5").
+        final index = _appointments.indexWhere((apt) =>
+            apt['id']?.toString() == appointmentId ||
+            apt['id_backend']?.toString() == appointmentId);
         if (index != -1) {
           _appointments[index]['estado'] = 'cancelada';
           _appointments[index]['razon_cancelacion'] = reason;
@@ -314,15 +316,16 @@ class AppointmentProvider extends ChangeNotifier {
         }
       }
 
-      final index = _appointments.indexWhere(
-          (apt) => apt['id'] == appointmentId || apt['id_backend'] == appointmentId);
+      final index = _appointments.indexWhere((apt) =>
+          apt['id']?.toString() == appointmentId ||
+          apt['id_backend']?.toString() == appointmentId);
       if (index != -1) {
         _appointments[index]['fecha'] = fecha;
         _appointments[index]['hora'] = hora;
         if (metodoPago != null) _appointments[index]['metodo_pago'] = metodoPago;
         _appointments[index]['estado'] =
             result['appointment']?['estado'] ?? _appointments[index]['estado'];
-        await _storage.updateAppointment(_appointments[index]['id'] ?? appointmentId, {
+        await _storage.updateAppointment(_appointments[index]['id']?.toString() ?? appointmentId, {
           'fecha': fecha,
           'hora': hora,
           if (metodoPago != null) 'metodo_pago': metodoPago,
@@ -338,14 +341,15 @@ class AppointmentProvider extends ChangeNotifier {
       debugPrint('❌ $_errorMessage');
 
       // Guardar el cambio localmente como pendiente de sincronización
-      final index = _appointments.indexWhere(
-          (apt) => apt['id'] == appointmentId || apt['id_backend'] == appointmentId);
+      final index = _appointments.indexWhere((apt) =>
+          apt['id']?.toString() == appointmentId ||
+          apt['id_backend']?.toString() == appointmentId);
       if (index != -1) {
         _appointments[index]['fecha'] = fecha;
         _appointments[index]['hora'] = hora;
         if (metodoPago != null) _appointments[index]['metodo_pago'] = metodoPago;
         _appointments[index]['sincronizado'] = false;
-        await _storage.updateAppointment(_appointments[index]['id'] ?? appointmentId, {
+        await _storage.updateAppointment(_appointments[index]['id']?.toString() ?? appointmentId, {
           'fecha': fecha,
           'hora': hora,
           if (metodoPago != null) 'metodo_pago': metodoPago,
@@ -454,7 +458,9 @@ class AppointmentProvider extends ChangeNotifier {
       final success = await _appointmentService.processAppointment(appointmentId, role: role, userId: userId);
 
       if (success) {
-        final idx = _appointments.indexWhere((apt) => apt['id'] == appointmentId || apt['id_backend'] == appointmentId);
+        final idx = _appointments.indexWhere((apt) =>
+            apt['id']?.toString() == appointmentId ||
+            apt['id_backend']?.toString() == appointmentId);
         if (idx != -1) {
           _appointments[idx]['procesada'] = true;
           _appointments[idx]['procesada_por_rol'] = role;

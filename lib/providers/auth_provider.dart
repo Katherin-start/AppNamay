@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 
@@ -51,7 +52,9 @@ class AuthProvider extends ChangeNotifier {
       _isNewUser = false;
       if (success) {
         _userEmail = email;
-        await fetchProfile();
+        // No bloquea la navegación: el perfil se carga en segundo plano
+        // y notifica a los listeners cuando llegue.
+        unawaited(fetchProfile());
       }
       _isLoading = false;
       notifyListeners();

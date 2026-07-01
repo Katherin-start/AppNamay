@@ -1,5 +1,5 @@
 class BackendConfig {
-  static const String apiBaseUrl = 'http://10.0.2.2:4000/api';
+  static const String apiBaseUrl = 'https://panelnamay.onrender.com/api';
 
   // Web / admin endpoints
   static const String adminLoginUrl = '$apiBaseUrl/auth/login';
